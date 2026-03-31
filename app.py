@@ -306,43 +306,159 @@ def main():
     
     with col1:
         st.subheader("📹 Видео с веб-камеры")
-        img_file = st.camera_input("Сделайте снимок для анализа")
-
-        if img_file is not None:
-            # Конвертируем в OpenCV формат
-            file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
-            frame = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-            # Загружаем каскад
+        
+        # Кнопка для запуска/остановки камеры
+        if 'camera_running' not in st.session_state:
+            st.session_state.camera_running = False
+        
+        if st.button("🎥 Запустить камеру", disabled=st.session_state.camera_running):
+            st.session_state.camera_running = True
+        
+        if st.button("⏹️ Остановить камеру", disabled=not st.session_state.camera_running):
+            st.session_state.camera_running = False
+        
+        # Показываем видео с камеры
+        if st.session_state.camera_running:
+            # Создаем placeholder для видео
+            video_placeholder = st.empty()
+            
+            # Инициализируем камеру
+            cap = cv2.VideoCapture(0)
+            if not cap.isOpened():
+                st.error("❌ Не удалось открыть веб-камеру")
+                st.session_state.camera_running = False
+                cap.release()
+                return
+            
+            # Загружаем каскадный классификатор
             eye_cascade = cv2.CascadeClassifier('lol.xml')
-            eyes = detect_eyes(gray, eye_cascade)
+            if eye_cascade.empty():
+                st.error("❌ Не удалось загрузить каскадный классификатор")
+                st.session_state.camera_running = False
+                cap.release()
+                return
+            
+            st.info("🎥 Камера запущена! Смотрите в камеру для детекции глаз.")
+            
+            # Основной цикл обработки видео
+            while st.session_state.camera_running:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                
+                # Зеркально отображаем изображение
+                frame = cv2.flip(frame, 1)
+                
+                # Конвертируем в серый
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                
+                # Детектируем глаза
+                eyes = detect_eyes(gray, eye_cascade)
+                
+                # Обрабатываем каждый найденный глаз
+                drowsiness_detected = False
+                total_confidence = 0
+                
+                for (x, y, w, h) in eyes:
+                    eye_roi = gray[y:y+h, x:x+w]
+                    
+                    result = classify_eye_state_fast(eye_roi, classifier, scaler)
+                    if result is not None:
+                        eye_state, probability = result
+                        confidence = probability[eye_state]
+                        total_confidence += confidence
+                        
+                        # Определяем цвет рамки на основе состояния глаза
+                        if eye_state == 0:  # Закрытые глаза
+                            color = (0, 0, 255)  # Красный
+                            drowsiness_detected = True
+                        elif eye_state == 1:  # Сонные глаза
+                            color = (0, 165, 255)  # Оранжевый
+                            drowsiness_detected = True
+                        elif eye_state == 2:  # Открытые глаза
+                            color = (0, 255, 0)  # Зеленый
+                        else:
+                            color = (128, 128, 128)  # Серый
+                        
+                        # Рисуем рамку вокруг глаза
+                        cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
+                
+                # Определяем общий статус
+                if drowsiness_detected or len(eyes) == 0:
+                    status = "Спит"
+                    status_color = (0, 0, 255)  # Красный
+                else:
+                    status = "Не Спит"
+                    status_color = (0, 255, 0)  # Зеленый
+                
+                # Вычисляем среднюю уверенность
+                avg_confidence = total_confidence / max(len(eyes), 1)
+                
+                # Обновляем статус в session_state для отображения в боковой панели
+                st.session_state.current_status = status
+                st.session_state.current_confidence = avg_confidence
+                st.session_state.eyes_detected = len(eyes)
+                
+                # Добавляем информацию на кадр (с поддержкой кириллицы через PIL)
+                def draw_text_pil_bgr(bgr_image: np.ndarray, text: str, position: tuple, 
+                                      font_size: int = 24, text_color=(255, 255, 255)) -> np.ndarray:
+                    # Конвертируем BGR -> RGB для PIL
+                    rgb_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2RGB)
+                    pil_img = Image.fromarray(rgb_image)
+                    draw = ImageDraw.Draw(pil_img)
+                    # Пытаемся найти шрифт с поддержкой кириллицы (Windows)
+                    font_paths = [
+                        "C:/Windows/Fonts/arial.ttf",
+                        "C:/Windows/Fonts/segoeui.ttf",
+                        "C:/Windows/Fonts/tahoma.ttf",
+                    ]
+                    font = None
+                    for p in font_paths:
+                        try:
+                            font = ImageFont.truetype(p, font_size)
+                            break
+                        except Exception:
+                            continue
+                    if font is None:
+                        # Фолбэк на стандартный шрифт (может не отрисовать кириллицу, но не упадём)
+                        font = ImageFont.load_default()
+                    draw.text(position, text, font=font, fill=tuple(int(c) for c in text_color))
+                    # Обратно RGB -> BGR
+                    result = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+                    return result
 
-            drowsiness_detected = False
-            for (x, y, w, h) in eyes:
-                eye_roi = gray[y:y+h, x:x+w]
-                result = classify_eye_state_fast(eye_roi, classifier, scaler)
-                if result is not None:
-                    eye_state, probability = result
-                    if eye_state in [0, 1]:
-                        color = (0, 0, 255)
-                        drowsiness_detected = True
-                    else:
-                        color = (0, 255, 0)
-                    cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
+                # Текст слева сверху
+                frame = draw_text_pil_bgr(frame, f"Глаза: {len(eyes)}", (10, 10), 24, (255, 255, 255))
+                frame = draw_text_pil_bgr(frame, f"Статус: {status}", (10, 40), 24, status_color)
 
-            status = "Спит" if (drowsiness_detected or len(eyes) == 0) else "Не Спит"
-            color = (0, 0, 255) if status == "Спит" else (0, 255, 0)
-            cv2.putText(frame, f"Статус: {status}", (10, 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            st.image(frame_rgb, channels="RGB", use_column_width=True)
-
-            st.session_state.current_status = status
-            st.session_state.eyes_detected = len(eyes)
+                # Бейдж статуса в правом верхнем углу
+                h, w = frame.shape[:2]
+                badge_text = f"{status}"
+                # Рисуем полупрозрачный фон под бейдж
+                overlay = frame.copy()
+                badge_w, badge_h = 180, 40
+                x1, y1 = w - badge_w - 10, 10
+                x2, y2 = w - 10, 10 + badge_h
+                bg_color = (0, 0, 0)
+                cv2.rectangle(overlay, (x1, y1), (x2, y2), bg_color, -1)
+                alpha = 0.35
+                frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
+                # Текст поверх бейджа (через PIL, чтобы не было "????")
+                frame = draw_text_pil_bgr(frame, badge_text, (x1 + 10, y1 + 8), 24, status_color)
+                
+                # Конвертируем BGR в RGB для Streamlit
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                
+                # Отображаем кадр
+                video_placeholder.image(frame_rgb, channels="RGB", use_column_width=True)
+                
+                # Небольшая задержка для плавности
+                time.sleep(0.1)
+            
+            # Освобождаем камеру
+            cap.release()
         else:
-            st.info("👆 Нажмите кнопку камеры выше для анализа")
+            st.info("👆 Нажмите 'Запустить камеру' для начала детекции")
     
     with col2:
         st.subheader("📊 Статус детекции")
