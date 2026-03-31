@@ -313,6 +313,29 @@ def main():
         class DrowsinessProcessor(VideoProcessorBase):
             def __init__(self):
                 self.eye_cascade = cv2.CascadeClassifier('lol.xml')
+            
+            @staticmethod
+            def draw_text_pil_bgr(bgr_image: np.ndarray, text: str, position: tuple,
+                                  font_size: int = 28, text_color=(255, 255, 255)) -> np.ndarray:
+                rgb_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2RGB)
+                pil_img = Image.fromarray(rgb_image)
+                draw = ImageDraw.Draw(pil_img)
+                font_paths = [
+                    "C:/Windows/Fonts/arial.ttf",
+                    "C:/Windows/Fonts/segoeui.ttf",
+                    "C:/Windows/Fonts/tahoma.ttf",
+                ]
+                font = None
+                for path in font_paths:
+                    try:
+                        font = ImageFont.truetype(path, font_size)
+                        break
+                    except Exception:
+                        continue
+                if font is None:
+                    font = ImageFont.load_default()
+                draw.text(position, text, font=font, fill=tuple(int(c) for c in text_color))
+                return cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
 
             def recv(self, frame):
                 img = frame.to_ndarray(format="bgr24")
@@ -335,10 +358,8 @@ def main():
 
                 status = "Спит" if (drowsiness_detected or len(eyes) == 0) else "Не Спит"
                 color = (0, 0, 255) if status == "Спит" else (0, 255, 0)
-                cv2.putText(img, f"Статус: {status}", (10, 40),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-                cv2.putText(img, f"Глаза: {len(eyes)}", (10, 80),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,255,255), 2)
+                img = self.draw_text_pil_bgr(img, f"Статус: {status}", (10, 10), 30, color)
+                img = self.draw_text_pil_bgr(img, f"Глаза: {len(eyes)}", (10, 50), 26, (255, 255, 255))
 
                 return av.VideoFrame.from_ndarray(img, format="bgr24")
 
