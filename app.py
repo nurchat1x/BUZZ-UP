@@ -306,69 +306,43 @@ def main():
     
     with col1:
         st.subheader("📹 Видео с веб-камеры")
+        img_file = st.camera_input("Сделайте снимок для анализа")
 
-        from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
-        import av
+        if img_file is not None:
+            # Конвертируем в OpenCV формат
+            file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
+            frame = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        class DrowsinessProcessor(VideoProcessorBase):
-            def __init__(self):
-                self.eye_cascade = cv2.CascadeClassifier('lol.xml')
-            
-            @staticmethod
-            def draw_text_pil_bgr(bgr_image: np.ndarray, text: str, position: tuple,
-                                  font_size: int = 28, text_color=(255, 255, 255)) -> np.ndarray:
-                rgb_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2RGB)
-                pil_img = Image.fromarray(rgb_image)
-                draw = ImageDraw.Draw(pil_img)
-                font_paths = [
-                    "C:/Windows/Fonts/arial.ttf",
-                    "C:/Windows/Fonts/segoeui.ttf",
-                    "C:/Windows/Fonts/tahoma.ttf",
-                ]
-                font = None
-                for path in font_paths:
-                    try:
-                        font = ImageFont.truetype(path, font_size)
-                        break
-                    except Exception:
-                        continue
-                if font is None:
-                    font = ImageFont.load_default()
-                draw.text(position, text, font=font, fill=tuple(int(c) for c in text_color))
-                return cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+            # Загружаем каскад
+            eye_cascade = cv2.CascadeClassifier('lol.xml')
+            eyes = detect_eyes(gray, eye_cascade)
 
-            def recv(self, frame):
-                img = frame.to_ndarray(format="bgr24")
-                img = cv2.flip(img, 1)
-                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-                eyes = detect_eyes(gray, self.eye_cascade)
+            drowsiness_detected = False
+            for (x, y, w, h) in eyes:
+                eye_roi = gray[y:y+h, x:x+w]
+                result = classify_eye_state_fast(eye_roi, classifier, scaler)
+                if result is not None:
+                    eye_state, probability = result
+                    if eye_state in [0, 1]:
+                        color = (0, 0, 255)
+                        drowsiness_detected = True
+                    else:
+                        color = (0, 255, 0)
+                    cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
 
-                drowsiness_detected = False
-                for (x, y, w, h) in eyes:
-                    eye_roi = gray[y:y+h, x:x+w]
-                    result = classify_eye_state_fast(eye_roi, classifier, scaler)
-                    if result is not None:
-                        eye_state, probability = result
-                        if eye_state in [0, 1]:
-                            color = (0, 0, 255)
-                            drowsiness_detected = True
-                        else:
-                            color = (0, 255, 0)
-                        cv2.rectangle(img, (x, y), (x+w, y+h), color, 2)
+            status = "Спит" if (drowsiness_detected or len(eyes) == 0) else "Не Спит"
+            color = (0, 0, 255) if status == "Спит" else (0, 255, 0)
+            cv2.putText(frame, f"Статус: {status}", (10, 40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
 
-                status = "Спит" if (drowsiness_detected or len(eyes) == 0) else "Не Спит"
-                color = (0, 0, 255) if status == "Спит" else (0, 255, 0)
-                img = self.draw_text_pil_bgr(img, f"Статус: {status}", (10, 10), 30, color)
-                img = self.draw_text_pil_bgr(img, f"Глаза: {len(eyes)}", (10, 50), 26, (255, 255, 255))
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            st.image(frame_rgb, channels="RGB", use_column_width=True)
 
-                return av.VideoFrame.from_ndarray(img, format="bgr24")
-
-        webrtc_streamer(
-            key="drowsiness",
-            video_processor_factory=DrowsinessProcessor,
-            rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
-            media_stream_constraints={"video": True, "audio": False},
-        )
+            st.session_state.current_status = status
+            st.session_state.eyes_detected = len(eyes)
+        else:
+            st.info("👆 Нажмите кнопку камеры выше для анализа")
     
     with col2:
         st.subheader("📊 Статус детекции")
