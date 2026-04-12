@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 ﻿opencv-python-headless>=4.10.0.84
 numpy>=1.26.0
 scikit-learn>=1.4.0
@@ -8,8 +7,3 @@ streamlit>=1.40.0
 streamlit-js-eval>=0.1.5
 pydeck>=0.9.0
 Pillow>=10.0.0
-=======
-altair
-pandas
-streamlit
->>>>>>> 453669a04e4148934341438d510b16cb71f6144e
