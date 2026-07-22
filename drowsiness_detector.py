@@ -184,3 +184,18 @@ class DrowsinessDetector:
 
     def close(self) -> None:
         self._landmarker.close()
+
+
+def probe_detector() -> tuple[bool, str | None]:
+    """Проверка, что MediaPipe native libs загружаются (важно для Streamlit Cloud)."""
+    detector = None
+    try:
+        detector = DrowsinessDetector()
+        return True, None
+    except OSError as exc:
+        return False, str(exc)
+    except Exception as exc:
+        return False, str(exc)
+    finally:
+        if detector is not None:
+            detector.close()

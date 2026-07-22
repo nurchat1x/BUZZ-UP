@@ -15,13 +15,18 @@ from PIL import Image, ImageDraw, ImageFont
 from streamlit_js_eval import get_geolocation
 from streamlit_webrtc import RTCConfiguration, VideoProcessorBase, WebRtcMode, webrtc_streamer
 
-from drowsiness_detector import DrowsinessDetector
+from drowsiness_detector import DrowsinessDetector, DrowsinessResult, probe_detector
 
 st.set_page_config(
     page_title="BUZZ-UP — Детекция Сонливости",
     page_icon="😴",
     layout="wide",
 )
+
+
+@st.cache_resource
+def mediapipe_runtime_ok() -> tuple[bool, str | None]:
+    return probe_detector()
 
 
 @st.cache_resource
@@ -263,12 +268,19 @@ def make_video_processor(ear_threshold: float, consecutive_frames: int):
 
     class DrowsinessVideoProcessor(VideoProcessorBase):
         def __init__(self):
-            self.detector = DrowsinessDetector(
-                ear_threshold=ear_threshold,
-                consecutive_frames=consecutive_frames,
-                draw_landmarks=False,
-            )
+            self.ear_threshold = ear_threshold
+            self.consecutive_frames = consecutive_frames
+            self.detector = None
             self.last_result = None
+
+        def _get_detector(self) -> DrowsinessDetector:
+            if self.detector is None:
+                self.detector = DrowsinessDetector(
+                    ear_threshold=self.ear_threshold,
+                    consecutive_frames=self.consecutive_frames,
+                    draw_landmarks=False,
+                )
+            return self.detector
 
         def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
             img = frame.to_ndarray(format="bgr24")
@@ -276,7 +288,7 @@ def make_video_processor(ear_threshold: float, consecutive_frames: int):
                 return frame
 
             img = cv2.flip(img, 1)
-            annotated, result = self.detector.process_frame(img)
+            annotated, result = self._get_detector().process_frame(img)
             self.last_result = result
 
             if result.status == "Спит":
@@ -332,6 +344,39 @@ def make_video_processor(ear_threshold: float, consecutive_frames: int):
     return DrowsinessVideoProcessor
 
 
+def render_photo_demo(ear_threshold: float, consecutive_frames: int) -> None:
+    """Демо через загрузку фото, если WebRTC/MediaPipe на сервере недоступны."""
+    st.warning(
+        "На облачном сервере камера может быть недоступна. "
+        "Загрузите фото лица или запустите локально: `streamlit run app.py`"
+    )
+    uploaded = st.file_uploader("Загрузить фото для анализа", type=["jpg", "jpeg", "png"])
+    if uploaded is None:
+        return
+
+    file_bytes = np.asarray(bytearray(uploaded.read()), dtype=np.uint8)
+    frame = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+    if frame is None:
+        st.error("Не удалось прочитать изображение")
+        return
+
+    try:
+        detector = DrowsinessDetector(
+            ear_threshold=ear_threshold,
+            consecutive_frames=consecutive_frames,
+            draw_landmarks=False,
+        )
+        annotated, result = detector.process_frame(frame)
+        detector.close()
+    except OSError as exc:
+        st.error(f"MediaPipe недоступен на сервере: {exc}")
+        st.info("Полная версия с камерой работает локально на твоём ПК.")
+        return
+
+    st.image(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB), caption=f"Статус: {result.status}, EAR: {result.ear:.3f}")
+    st.session_state.demo_result = result
+
+
 def render_live_status(webrtc_ctx) -> None:
     """Панель статуса — читает результат из video_processor."""
     result = get_live_result(webrtc_ctx)
@@ -382,38 +427,57 @@ def main():
 
     col1, col2, col3 = st.columns([2, 1, 1])
 
+    detector_ok, detector_error = mediapipe_runtime_ok()
+    webrtc_ctx = None
+
     with col1:
         st.subheader("📹 Видео с веб-камеры")
-        st.caption("Нажмите START — браузер запросит доступ к камере.")
-
-        webrtc_ctx = webrtc_streamer(
-            key="buzz-up-webrtc",
-            mode=WebRtcMode.SENDRECV,
-            rtc_configuration=RTCConfiguration(
-                {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
-            ),
-            video_processor_factory=lambda: make_video_processor(ear_threshold, consecutive_frames)(),
-            media_stream_constraints={"video": {"width": {"ideal": 640}, "height": {"ideal": 480}}, "audio": False},
-            async_processing=True,
-        )
-
-        if webrtc_ctx.state.playing:
-            st.info("🎥 Камера активна. Смотрите в камеру — следите за EAR и статусом.")
+        if detector_ok:
+            st.caption("Нажмите START — браузер запросит доступ к камере.")
+            webrtc_ctx = webrtc_streamer(
+                key="buzz-up-webrtc",
+                mode=WebRtcMode.SENDRECV,
+                rtc_configuration=RTCConfiguration(
+                    {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+                ),
+                video_processor_factory=lambda: make_video_processor(ear_threshold, consecutive_frames)(),
+                media_stream_constraints={"video": {"width": {"ideal": 640}, "height": {"ideal": 480}}, "audio": False},
+                async_processing=True,
+            )
+            if webrtc_ctx.state.playing:
+                st.info("🎥 Камера активна. Смотрите в камеру — следите за EAR и статусом.")
+            else:
+                st.info("👆 Нажмите **START** выше, чтобы включить камеру.")
         else:
-            st.info("👆 Нажмите **START** выше, чтобы включить камеру.")
+            st.caption("Демо-режим: загрузка фото (MediaPipe на сервере недоступен).")
+            if detector_error:
+                with st.expander("Техническая ошибка сервера"):
+                    st.code(detector_error)
+            render_photo_demo(ear_threshold, consecutive_frames)
 
     with col2:
         st.subheader("📊 Статус детекции")
 
-        if webrtc_ctx.state.playing:
+        if webrtc_ctx is not None and webrtc_ctx.state.playing:
 
             @st.fragment(run_every=0.3)
             def live_status_panel():
                 render_live_status(webrtc_ctx)
 
             live_status_panel()
-        else:
+        elif "demo_result" in st.session_state:
+            result = st.session_state.demo_result
+            if result.status == "Спит":
+                st.error(f"😴 **{result.status}**")
+            elif result.status == "Не Спит":
+                st.success(f"👁️ **{result.status}**")
+            else:
+                st.warning(f"❓ **{result.status}**")
+            st.metric("EAR (средний)", f"{result.ear:.3f}")
+        elif webrtc_ctx is not None:
             render_live_status(webrtc_ctx)
+        else:
+            st.info("Загрузите фото слева или запустите app локально для камеры.")
 
         st.markdown("---")
         st.markdown("### 🚌 Ближайшая остановка для отдыха")
@@ -422,7 +486,7 @@ def main():
             stop = st.session_state.nearest_stop
             render_stop_details(stop)
 
-            _live = get_live_result(webrtc_ctx)
+            _live = get_live_result(webrtc_ctx) if webrtc_ctx is not None else st.session_state.get("demo_result")
 
             if _live is not None and _live.status == "Спит":
                 if stop["distance_km"] <= 20:
