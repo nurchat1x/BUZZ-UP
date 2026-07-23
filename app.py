@@ -6,6 +6,7 @@ MediaPipe Face Mesh + EAR, WebRTC-камера, карта точек отдых
 import json
 import math
 import os
+import tempfile
 
 import numpy as np
 import pydeck as pdk
@@ -97,6 +98,68 @@ def get_rtc_configuration() -> dict:
     if has_turn:
         config["iceTransportPolicy"] = "relay"
     return config
+
+
+def is_cloud_deploy() -> bool:
+    """Render / Streamlit Cloud — WebRTC часто не работает, нужен другой UI."""
+    if os.getenv("BUZZUP_FORCE_WEBRTC", "").lower() in ("1", "true", "yes"):
+        return False
+    if os.getenv("BUZZUP_FORCE_CLOUD_UI", "").lower() in ("1", "true", "yes"):
+        return True
+    if os.getenv("RENDER") == "true":
+        return True
+    return bool(os.getenv("STREAMLIT_SHARING_MODE"))
+
+
+def decode_image_bytes(data: bytes) -> np.ndarray | None:
+    if cv2 is None or not data:
+        return None
+    buffer = np.asarray(bytearray(data), dtype=np.uint8)
+    return cv2.imdecode(buffer, cv2.IMREAD_COLOR)
+
+
+def run_frame_detection(
+    frame_bgr: np.ndarray,
+    ear_threshold: float,
+    consecutive_frames: int,
+) -> tuple[np.ndarray, object] | None:
+    if DrowsinessDetector is None:
+        return None
+    detector = None
+    try:
+        detector = DrowsinessDetector(
+            ear_threshold=ear_threshold,
+            consecutive_frames=consecutive_frames,
+            draw_landmarks=False,
+        )
+        annotated, result = detector.process_frame(frame_bgr)
+        st.session_state.demo_result = result
+        return annotated, result
+    except OSError as exc:
+        st.error(f"MediaPipe недоступен: {exc}")
+        return None
+    finally:
+        if detector is not None:
+            detector.close()
+
+
+def render_detection_metrics(result) -> None:
+    if result.status == "Спит":
+        st.error(f"😴 **{result.status}**")
+        st.markdown("⚠️ **Внимание! Обнаружена сонливость!**")
+    elif result.status == "Не Спит":
+        st.success(f"👁️ **{result.status}**")
+        st.markdown("✅ **Человек бодрствует**")
+    else:
+        st.warning(f"❓ **{result.status}**")
+        st.markdown("Повернитесь лицом к камере")
+
+    st.metric("Уверенность", f"{result.confidence:.2f}")
+    st.metric("EAR (средний)", f"{result.ear:.3f}")
+    c1, c2 = st.columns(2)
+    c1.metric("EAR левый", f"{result.left_ear:.3f}")
+    c2.metric("EAR правый", f"{result.right_ear:.3f}")
+    st.metric("Кадров ниже порога", result.closed_frames)
 
 
 @st.cache_resource
@@ -416,6 +479,112 @@ def make_video_processor(ear_threshold: float, consecutive_frames: int):
     return DrowsinessVideoProcessor
 
 
+def render_cloud_detection_panel(ear_threshold: float, consecutive_frames: int) -> None:
+    """Облачный режим: камера через снимок/файл (без WebRTC)."""
+    st.info(
+        "На Render live-WebRTC часто **не подключается** (ограничение сети). "
+        "Используй **«Снимок с камеры»** — это работает через браузер без WebRTC."
+    )
+
+    tab_cam, tab_photo, tab_video = st.tabs(["📸 Снимок с камеры", "🖼️ Фото", "🎬 Видео"])
+
+    with tab_cam:
+        st.caption("Разреши камеру → нажми кнопку затвора. Можно делать новые снимки подряд.")
+        snapshot = st.camera_input("Снимок лица для анализа EAR")
+        if snapshot is not None:
+            frame = decode_image_bytes(snapshot.getvalue())
+            if frame is None:
+                st.error("Не удалось прочитать снимок")
+            else:
+                with st.spinner("Анализ…"):
+                    out = run_frame_detection(frame, ear_threshold, consecutive_frames=1)
+                if out is not None:
+                    annotated, result = out
+                    st.image(
+                        cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB),
+                        caption=f"Статус: {result.status}, EAR: {result.ear:.3f}",
+                        use_container_width=True,
+                    )
+
+    with tab_photo:
+        uploaded = st.file_uploader("JPG / PNG", type=["jpg", "jpeg", "png"], key="cloud_photo")
+        if uploaded is not None:
+            frame = decode_image_bytes(uploaded.read())
+            if frame is None:
+                st.error("Не удалось прочитать изображение")
+            else:
+                with st.spinner("Анализ…"):
+                    out = run_frame_detection(frame, ear_threshold, consecutive_frames=1)
+                if out is not None:
+                    annotated, result = out
+                    st.image(
+                        cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB),
+                        caption=f"Статус: {result.status}, EAR: {result.ear:.3f}",
+                        use_container_width=True,
+                    )
+
+    with tab_video:
+        st.caption("Короткое видео (до ~20 сек) — анализ кадров для детекции сонливости.")
+        uploaded_video = st.file_uploader("MP4 / WEBM / MOV", type=["mp4", "webm", "mov"], key="cloud_video")
+        if uploaded_video is not None:
+            suffix = os.path.splitext(uploaded_video.name)[1] or ".mp4"
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                tmp.write(uploaded_video.read())
+                tmp_path = tmp.name
+            detector = None
+            try:
+                cap = cv2.VideoCapture(tmp_path)
+                if not cap.isOpened():
+                    st.error("Не удалось открыть видео")
+                    return
+                detector = DrowsinessDetector(
+                    ear_threshold=ear_threshold,
+                    consecutive_frames=consecutive_frames,
+                    draw_landmarks=False,
+                )
+                frame_idx = 0
+                last_annotated = None
+                last_result = None
+                progress = st.progress(0, text="Обработка видео…")
+                total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 300
+                total = min(total, 600)
+                while frame_idx < total:
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    if frame_idx % 3 == 0:
+                        last_annotated, last_result = detector.process_frame(frame)
+                        st.session_state.demo_result = last_result
+                    frame_idx += 1
+                    if total > 0:
+                        progress.progress(min(frame_idx / total, 1.0))
+                cap.release()
+                progress.empty()
+                if last_annotated is not None and last_result is not None:
+                    st.image(
+                        cv2.cvtColor(last_annotated, cv2.COLOR_BGR2RGB),
+                        caption=f"Последний кадр: {last_result.status}, EAR: {last_result.ear:.3f}",
+                        use_container_width=True,
+                    )
+            finally:
+                if detector is not None:
+                    detector.close()
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+
+    with st.expander("⚡ Live WebRTC (эксперимент, на Render обычно не работает)"):
+        webrtc_streamer(
+            key="buzz-up-webrtc-cloud",
+            mode=WebRtcMode.SENDRECV,
+            rtc_configuration=RTCConfiguration(get_rtc_configuration()),
+            video_processor_factory=lambda: make_video_processor(ear_threshold, consecutive_frames)(),
+            media_stream_constraints={"video": {"width": {"ideal": 640}, "height": {"ideal": 480}}, "audio": False},
+            async_processing=True,
+        )
+
+
 def render_photo_demo(ear_threshold: float, consecutive_frames: int) -> None:
     """Демо через загрузку фото, если WebRTC/MediaPipe на сервере недоступны."""
     if cv2 is None or DrowsinessDetector is None:
@@ -461,24 +630,7 @@ def render_live_status(webrtc_ctx) -> None:
     if result is None:
         st.info("🎥 Запустите камеру для получения статуса")
         return
-
-    status = result.status
-    if status == "Спит":
-        st.error(f"😴 **{status}**")
-        st.markdown("⚠️ **Внимание! Обнаружена сонливость!**")
-    elif status == "Не Спит":
-        st.success(f"👁️ **{status}**")
-        st.markdown("✅ **Человек бодрствует**")
-    else:
-        st.warning(f"❓ **{status}**")
-        st.markdown("Повернитесь лицом к камере")
-
-    st.metric("Уверенность", f"{result.confidence:.2f}")
-    st.metric("EAR (средний)", f"{result.ear:.3f}")
-    c1, c2 = st.columns(2)
-    c1.metric("EAR левый", f"{result.left_ear:.3f}")
-    c2.metric("EAR правый", f"{result.right_ear:.3f}")
-    st.metric("Кадров ниже порога", result.closed_frames)
+    render_detection_metrics(result)
 
 
 def main():
@@ -518,6 +670,8 @@ def main():
             if CV2_IMPORT_ERROR:
                 with st.expander("Техническая ошибка OpenCV"):
                     st.code(CV2_IMPORT_ERROR)
+        elif detector_ok and is_cloud_deploy():
+            render_cloud_detection_panel(ear_threshold, consecutive_frames)
         elif detector_ok:
             st.caption("Нажмите START — браузер запросит доступ к камере.")
             webrtc_ctx = webrtc_streamer(
@@ -550,18 +704,11 @@ def main():
 
             live_status_panel()
         elif "demo_result" in st.session_state:
-            result = st.session_state.demo_result
-            if result.status == "Спит":
-                st.error(f"😴 **{result.status}**")
-            elif result.status == "Не Спит":
-                st.success(f"👁️ **{result.status}**")
-            else:
-                st.warning(f"❓ **{result.status}**")
-            st.metric("EAR (средний)", f"{result.ear:.3f}")
+            render_detection_metrics(st.session_state.demo_result)
         elif webrtc_ctx is not None:
             render_live_status(webrtc_ctx)
         else:
-            st.info("Загрузите фото слева или запустите app локально для камеры.")
+            st.info("Сделай снимок с камеры слева или загрузи фото/видео.")
 
         st.markdown("---")
         st.markdown("### 🚌 Ближайшая остановка для отдыха")
@@ -586,15 +733,25 @@ def main():
 
         st.markdown("---")
         st.markdown("### 📋 Инструкции")
-        st.markdown(
-            """
-            1. Нажмите **START** у видеоплеера
-            2. Разрешите доступ к камере в браузере
-            3. Смотрите прямо в камеру
-            4. **Спит** — EAR ниже порога ~1 сек
-            5. **Не Спит** — глаза открыты
-            """
-        )
+        if is_cloud_deploy():
+            st.markdown(
+                """
+                1. Вкладка **«Снимок с камеры»** — разреши камеру, нажми затвор
+                2. Или загрузи **фото / короткое видео**
+                3. Смотри **EAR** и статус справа
+                4. Выбери маршрут → **Найти ближайшую остановку**
+                """
+            )
+        else:
+            st.markdown(
+                """
+                1. Нажмите **START** у видеоплеера
+                2. Разрешите доступ к камере в браузере
+                3. Смотрите прямо в камеру
+                4. **Спит** — EAR ниже порога ~1 сек
+                5. **Не Спит** — глаза открыты
+                """
+            )
 
     with col3:
         st.subheader("🚌 Ближайшая остановка")
