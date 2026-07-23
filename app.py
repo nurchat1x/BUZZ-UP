@@ -6,16 +6,11 @@ MediaPipe Face Mesh + EAR, WebRTC-камера, карта точек отдых
 import json
 import math
 
-import av
-import cv2
 import numpy as np
 import pydeck as pdk
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
 from streamlit_js_eval import get_geolocation
-from streamlit_webrtc import RTCConfiguration, VideoProcessorBase, WebRtcMode, webrtc_streamer
-
-from drowsiness_detector import DrowsinessDetector, DrowsinessResult, probe_detector
 
 st.set_page_config(
     page_title="BUZZ-UP — Детекция Сонливости",
@@ -23,9 +18,33 @@ st.set_page_config(
     layout="wide",
 )
 
+CV2_IMPORT_ERROR: str | None = None
+try:
+    import cv2
+except ImportError as exc:
+    cv2 = None
+    CV2_IMPORT_ERROR = str(exc)
+
+if cv2 is not None:
+    import av
+    from streamlit_webrtc import RTCConfiguration, VideoProcessorBase, WebRtcMode, webrtc_streamer
+
+    from drowsiness_detector import DrowsinessDetector, DrowsinessResult, probe_detector
+else:
+    av = None
+    RTCConfiguration = None
+    VideoProcessorBase = object
+    WebRtcMode = None
+    webrtc_streamer = None
+    DrowsinessDetector = None
+    DrowsinessResult = None
+    probe_detector = None
+
 
 @st.cache_resource
 def mediapipe_runtime_ok() -> tuple[bool, str | None]:
+    if cv2 is None:
+        return False, CV2_IMPORT_ERROR or "OpenCV (cv2) недоступен на сервере"
     return probe_detector()
 
 
@@ -229,6 +248,8 @@ def draw_text_pil_bgr(
     font_size: int = 24,
     text_color=(255, 255, 255),
 ) -> np.ndarray:
+    if cv2 is None:
+        raise RuntimeError("OpenCV недоступен")
     rgb_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2RGB)
     pil_img = Image.fromarray(rgb_image)
     draw = ImageDraw.Draw(pil_img)
@@ -346,6 +367,11 @@ def make_video_processor(ear_threshold: float, consecutive_frames: int):
 
 def render_photo_demo(ear_threshold: float, consecutive_frames: int) -> None:
     """Демо через загрузку фото, если WebRTC/MediaPipe на сервере недоступны."""
+    if cv2 is None or DrowsinessDetector is None:
+        st.error("OpenCV недоступен на этом сервере — детекция по фото временно отключена.")
+        st.info("Карта и поиск остановок работают. Полная версия: `python -m streamlit run app.py` локально.")
+        return
+
     st.warning(
         "На облачном сервере камера может быть недоступна. "
         "Загрузите фото лица или запустите локально: `streamlit run app.py`"
@@ -432,7 +458,16 @@ def main():
 
     with col1:
         st.subheader("📹 Видео с веб-камеры")
-        if detector_ok:
+        if cv2 is None:
+            st.error("OpenCV не загрузился на сервере Streamlit Cloud.")
+            st.info(
+                "Карта и поиск точек отдыха справа работают. "
+                "Для камеры и EAR запустите приложение локально."
+            )
+            if CV2_IMPORT_ERROR:
+                with st.expander("Техническая ошибка OpenCV"):
+                    st.code(CV2_IMPORT_ERROR)
+        elif detector_ok:
             st.caption("Нажмите START — браузер запросит доступ к камере.")
             webrtc_ctx = webrtc_streamer(
                 key="buzz-up-webrtc",
