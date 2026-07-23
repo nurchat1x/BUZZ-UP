@@ -69,6 +69,26 @@ docker run -p 8501:8501 -e PORT=8501 buzz-up
 → http://localhost:8501
 
 
+ЕСЛИ КАМЕРА ДОЛГО ПОДКЛЮЧАЕТСЯ (STUN/TURN)
+-----------------------------------------
+Сообщение «Connection is taking longer than expected» — это WebRTC, не MediaPipe.
+На облаке браузер и сервер часто не могут соединиться только через STUN.
+
+Уже в коде:
+  • несколько STUN-серверов
+  • публичный TURN (openrelay.metered.ca) для демо на Render
+
+Если всё равно медленно — лучший вариант: Twilio TURN (бесплатный trial):
+  1. https://www.twilio.com/try-twilio
+  2. Render → buzz-up → Environment → Add:
+       TWILIO_ACCOUNT_SID = ...
+       TWILIO_AUTH_TOKEN = ...
+  3. pip install twilio — добавь в requirements.txt если используешь Twilio
+  4. Redeploy
+
+Отключить публичный TURN: BUZZUP_USE_PUBLIC_TURN=false
+
+
 ЕСЛИ СБОРКА УПАЛА
 -----------------
 • Out of memory → на free 512MB RAM; убери из requirements train-only пакеты

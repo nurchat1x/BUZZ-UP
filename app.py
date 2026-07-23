@@ -5,6 +5,7 @@ MediaPipe Face Mesh + EAR, WebRTC-камера, карта точек отдых
 
 import json
 import math
+import os
 
 import numpy as np
 import pydeck as pdk
@@ -46,6 +47,56 @@ def mediapipe_runtime_ok() -> tuple[bool, str | None]:
     if cv2 is None:
         return False, CV2_IMPORT_ERROR or "OpenCV (cv2) недоступен на сервере"
     return probe_detector()
+
+
+def get_rtc_configuration() -> dict:
+    """STUN/TURN для WebRTC на облаке (Render, Streamlit Cloud).
+
+    Локально хватает STUN. На облаке часто нужен TURN — иначе долгое
+    «Connection is taking longer than expected».
+    """
+    ice_servers: list[dict] = [
+        {"urls": ["stun:stun.l.google.com:19302"]},
+        {"urls": ["stun:stun1.l.google.com:19302"]},
+        {"urls": ["stun:stun2.l.google.com:19302"]},
+    ]
+
+    sid = os.getenv("TWILIO_ACCOUNT_SID")
+    auth = os.getenv("TWILIO_AUTH_TOKEN")
+    if sid and auth:
+        try:
+            from twilio.rest import Client
+
+            token = Client(sid, auth).tokens.create()
+            ice_servers = token.ice_servers
+        except Exception:
+            pass
+
+    use_public_turn = os.getenv("BUZZUP_USE_PUBLIC_TURN", "true").lower() in ("1", "true", "yes")
+    has_turn = any(
+        url.startswith("turn:") or url.startswith("turns:")
+        for server in ice_servers
+        for url in (server.get("urls") if isinstance(server.get("urls"), list) else [server.get("urls")])
+        if url
+    )
+    if use_public_turn and not has_turn:
+        ice_servers.append(
+            {
+                "urls": [
+                    "turn:openrelay.metered.ca:80",
+                    "turn:openrelay.metered.ca:443",
+                    "turn:openrelay.metered.ca:443?transport=tcp",
+                ],
+                "username": "openrelayproject",
+                "credential": "openrelayproject",
+            }
+        )
+        has_turn = True
+
+    config: dict = {"iceServers": ice_servers}
+    if has_turn:
+        config["iceTransportPolicy"] = "relay"
+    return config
 
 
 @st.cache_resource
@@ -472,9 +523,7 @@ def main():
             webrtc_ctx = webrtc_streamer(
                 key="buzz-up-webrtc",
                 mode=WebRtcMode.SENDRECV,
-                rtc_configuration=RTCConfiguration(
-                    {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
-                ),
+                rtc_configuration=RTCConfiguration(get_rtc_configuration()),
                 video_processor_factory=lambda: make_video_processor(ear_threshold, consecutive_frames)(),
                 media_stream_constraints={"video": {"width": {"ideal": 640}, "height": {"ideal": 480}}, "audio": False},
                 async_processing=True,
