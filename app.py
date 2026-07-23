@@ -51,16 +51,17 @@ def mediapipe_runtime_ok() -> tuple[bool, str | None]:
 
 
 def get_rtc_configuration() -> dict:
-    """STUN/TURN для WebRTC на облаке (Render, Streamlit Cloud).
+    """STUN/TURN для WebRTC.
 
-    Локально хватает STUN. На облаке часто нужен TURN — иначе долгое
-    «Connection is taking longer than expected».
+    Локально: только STUN (прямое подключение).
+    Облако: STUN + TURN + relay (Render часто без этого не работает).
     """
     ice_servers: list[dict] = [
         {"urls": ["stun:stun.l.google.com:19302"]},
         {"urls": ["stun:stun1.l.google.com:19302"]},
         {"urls": ["stun:stun2.l.google.com:19302"]},
     ]
+    cloud = is_cloud_deploy()
 
     sid = os.getenv("TWILIO_ACCOUNT_SID")
     auth = os.getenv("TWILIO_AUTH_TOKEN")
@@ -73,13 +74,14 @@ def get_rtc_configuration() -> dict:
         except Exception:
             pass
 
-    use_public_turn = os.getenv("BUZZUP_USE_PUBLIC_TURN", "true").lower() in ("1", "true", "yes")
     has_turn = any(
         url.startswith("turn:") or url.startswith("turns:")
         for server in ice_servers
         for url in (server.get("urls") if isinstance(server.get("urls"), list) else [server.get("urls")])
         if url
     )
+
+    use_public_turn = cloud and os.getenv("BUZZUP_USE_PUBLIC_TURN", "true").lower() in ("1", "true", "yes")
     if use_public_turn and not has_turn:
         ice_servers.append(
             {
@@ -95,7 +97,7 @@ def get_rtc_configuration() -> dict:
         has_turn = True
 
     config: dict = {"iceServers": ice_servers}
-    if has_turn:
+    if cloud and has_turn:
         config["iceTransportPolicy"] = "relay"
     return config
 
@@ -479,6 +481,129 @@ def make_video_processor(ear_threshold: float, consecutive_frames: int):
     return DrowsinessVideoProcessor
 
 
+def release_opencv_camera() -> None:
+    cap = st.session_state.get("opencv_cap")
+    if cap is not None:
+        try:
+            cap.release()
+        except Exception:
+            pass
+        st.session_state.opencv_cap = None
+    detector = st.session_state.get("opencv_detector")
+    if detector is not None:
+        try:
+            detector.close()
+        except Exception:
+            pass
+        st.session_state.opencv_detector = None
+    st.session_state.opencv_cam_active = False
+
+
+def open_opencv_camera() -> bool:
+    release_opencv_camera()
+    if os.name == "nt":
+        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+    else:
+        cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        return False
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    st.session_state.opencv_cap = cap
+    st.session_state.opencv_cam_active = True
+    return True
+
+
+def render_opencv_live_camera(ear_threshold: float, consecutive_frames: int) -> None:
+    """Прямая камера через OpenCV — надёжно работает локально на Windows."""
+    st.caption("Камера читается напрямую с ноутбука (без WebRTC). Рекомендуется для локального запуска.")
+
+    btn_on, btn_off = st.columns(2)
+    with btn_on:
+        if st.button("▶ Включить камеру", type="primary", use_container_width=True):
+            if open_opencv_camera():
+                st.rerun()
+            else:
+                st.error("Не удалось открыть камеру. Закрой Zoom/Teams/Camera и попробуй снова.")
+    with btn_off:
+        if st.button("⏹ Выключить", use_container_width=True):
+            release_opencv_camera()
+            st.rerun()
+
+    if not st.session_state.get("opencv_cam_active"):
+        st.info("Нажми **▶ Включить камеру** — live EAR пойдёт сразу.")
+        return
+
+    @st.fragment(run_every=0.12)
+    def opencv_live_loop() -> None:
+        cap = st.session_state.get("opencv_cap")
+        if cap is None or not cap.isOpened():
+            st.warning("Камера отключилась. Нажми ▶ снова.")
+            return
+
+        if st.session_state.get("opencv_detector") is None or (
+            st.session_state.get("opencv_ear_threshold") != ear_threshold
+            or st.session_state.get("opencv_consecutive_frames") != consecutive_frames
+        ):
+            old = st.session_state.get("opencv_detector")
+            if old is not None:
+                old.close()
+            st.session_state.opencv_detector = DrowsinessDetector(
+                ear_threshold=ear_threshold,
+                consecutive_frames=consecutive_frames,
+                draw_landmarks=False,
+            )
+            st.session_state.opencv_ear_threshold = ear_threshold
+            st.session_state.opencv_consecutive_frames = consecutive_frames
+
+        ret, frame = cap.read()
+        if not ret or frame is None:
+            st.warning("Не удалось получить кадр с камеры.")
+            return
+
+        frame = cv2.flip(frame, 1)
+        annotated, result = st.session_state.opencv_detector.process_frame(frame)
+        st.session_state.demo_result = result
+        st.image(
+            cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB),
+            caption=f"EAR: {result.ear:.3f} · {result.status}",
+            use_container_width=True,
+        )
+
+    opencv_live_loop()
+
+
+def render_local_camera_panel(ear_threshold: float, consecutive_frames: int):
+    """Локальный режим: OpenCV live по умолчанию + WebRTC опционально."""
+    mode = st.radio(
+        "Режим камеры",
+        ["OpenCV Live", "WebRTC"],
+        horizontal=True,
+        help="OpenCV Live — прямой доступ к веб-камере, лучше работает на Windows.",
+    )
+
+    if mode == "OpenCV Live":
+        render_opencv_live_camera(ear_threshold, consecutive_frames)
+        return None
+
+    st.caption("WebRTC: нажми START и разреши камеру в браузере.")
+    ctx = webrtc_streamer(
+        key="buzz-up-webrtc",
+        mode=WebRtcMode.SENDRECV,
+        rtc_configuration=RTCConfiguration(get_rtc_configuration()),
+        video_processor_factory=lambda: make_video_processor(ear_threshold, consecutive_frames)(),
+        media_stream_constraints={"video": {"width": {"ideal": 640}, "height": {"ideal": 480}}, "audio": False},
+        async_processing=True,
+    )
+    if ctx.state.playing:
+        st.info("🎥 WebRTC камера активна.")
+    else:
+        st.info("👆 Нажми **START** выше.")
+    return ctx
+
+
 def render_cloud_detection_panel(ear_threshold: float, consecutive_frames: int) -> None:
     """Облачный режим: камера через снимок/файл (без WebRTC)."""
     st.info(
@@ -673,19 +798,7 @@ def main():
         elif detector_ok and is_cloud_deploy():
             render_cloud_detection_panel(ear_threshold, consecutive_frames)
         elif detector_ok:
-            st.caption("Нажмите START — браузер запросит доступ к камере.")
-            webrtc_ctx = webrtc_streamer(
-                key="buzz-up-webrtc",
-                mode=WebRtcMode.SENDRECV,
-                rtc_configuration=RTCConfiguration(get_rtc_configuration()),
-                video_processor_factory=lambda: make_video_processor(ear_threshold, consecutive_frames)(),
-                media_stream_constraints={"video": {"width": {"ideal": 640}, "height": {"ideal": 480}}, "audio": False},
-                async_processing=True,
-            )
-            if webrtc_ctx.state.playing:
-                st.info("🎥 Камера активна. Смотрите в камеру — следите за EAR и статусом.")
-            else:
-                st.info("👆 Нажмите **START** выше, чтобы включить камеру.")
+            webrtc_ctx = render_local_camera_panel(ear_threshold, consecutive_frames)
         else:
             st.caption("Демо-режим: загрузка фото (MediaPipe на сервере недоступен).")
             if detector_error:
@@ -703,6 +816,13 @@ def main():
                 render_live_status(webrtc_ctx)
 
             live_status_panel()
+        elif st.session_state.get("opencv_cam_active") and "demo_result" in st.session_state:
+
+            @st.fragment(run_every=0.3)
+            def opencv_status_panel():
+                render_detection_metrics(st.session_state.demo_result)
+
+            opencv_status_panel()
         elif "demo_result" in st.session_state:
             render_detection_metrics(st.session_state.demo_result)
         elif webrtc_ctx is not None:
@@ -718,6 +838,8 @@ def main():
             render_stop_details(stop)
 
             _live = get_live_result(webrtc_ctx) if webrtc_ctx is not None else st.session_state.get("demo_result")
+            if _live is None and st.session_state.get("opencv_cam_active"):
+                _live = st.session_state.get("demo_result")
 
             if _live is not None and _live.status == "Спит":
                 if stop["distance_km"] <= 20:
@@ -745,11 +867,10 @@ def main():
         else:
             st.markdown(
                 """
-                1. Нажмите **START** у видеоплеера
-                2. Разрешите доступ к камере в браузере
-                3. Смотрите прямо в камеру
-                4. **Спит** — EAR ниже порога ~1 сек
-                5. **Не Спит** — глаза открыты
+                1. Режим **OpenCV Live** → **▶ Включить камеру**
+                2. Смотри в камеру — EAR и статус справа
+                3. Закрой глаза ~1 сек → статус **Спит**
+                4. Выбери маршрут → **Найти ближайшую остановку**
                 """
             )
 
