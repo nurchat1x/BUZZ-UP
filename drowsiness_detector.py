@@ -6,15 +6,40 @@ MediaPipe >= 0.10.30 убрал mp.solutions — используем mediapipe.
 
 from __future__ import annotations
 
+import sys
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 
 import cv2
-import mediapipe as mp
 import numpy as np
-from mediapipe.tasks import python
-from mediapipe.tasks.python import vision
+
+
+def _stub_matplotlib_for_mediapipe() -> None:
+    """MediaPipe тянет matplotlib для drawing_utils, нам он не нужен.
+
+    На Windows Smart App Control часто блокирует matplotlib._image.pyd (DLL).
+    """
+    if "matplotlib" in sys.modules:
+        return
+
+    class _StubModule(ModuleType):
+        def __getattr__(self, name: str):
+            child = _StubModule(f"{self.__name__}.{name}")
+            setattr(self, name, child)
+            return child
+
+    sys.modules["matplotlib"] = _StubModule("matplotlib")
+    sys.modules["matplotlib.pyplot"] = sys.modules["matplotlib"].pyplot
+
+
+_stub_matplotlib_for_mediapipe()
+
+from mediapipe.tasks.python.core.base_options import BaseOptions
+from mediapipe.tasks.python.vision.core.image import Image, ImageFormat
+from mediapipe.tasks.python.vision.core.vision_task_running_mode import VisionTaskRunningMode
+from mediapipe.tasks.python.vision.face_landmarker import FaceLandmarker, FaceLandmarkerOptions
 
 MODEL_DIR = Path(__file__).parent / "models"
 MODEL_PATH = MODEL_DIR / "face_landmarker.task"
@@ -87,10 +112,10 @@ class DrowsinessDetector:
         )
 
         model_path = ensure_model()
-        base_options = python.BaseOptions(model_asset_path=str(model_path))
-        options = vision.FaceLandmarkerOptions(
+        base_options = BaseOptions(model_asset_path=str(model_path))
+        options = FaceLandmarkerOptions(
             base_options=base_options,
-            running_mode=vision.RunningMode.VIDEO,
+            running_mode=VisionTaskRunningMode.VIDEO,
             num_faces=1,
             min_face_detection_confidence=0.5,
             min_face_presence_confidence=0.5,
@@ -98,7 +123,7 @@ class DrowsinessDetector:
             output_face_blendshapes=False,
             output_facial_transformation_matrixes=False,
         )
-        self._landmarker = vision.FaceLandmarker.create_from_options(options)
+        self._landmarker = FaceLandmarker.create_from_options(options)
 
     @property
     def last_result(self) -> DrowsinessResult:
@@ -125,7 +150,7 @@ class DrowsinessDetector:
     def _process_frame_core(self, frame_bgr: np.ndarray) -> tuple[np.ndarray, DrowsinessResult]:
         height, width = frame_bgr.shape[:2]
         rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        mp_image = Image(image_format=ImageFormat.SRGB, data=rgb)
 
         self._frame_ts_ms += 33
         result = self._landmarker.detect_for_video(mp_image, self._frame_ts_ms)

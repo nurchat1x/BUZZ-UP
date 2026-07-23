@@ -1,5 +1,6 @@
-﻿# Streamlit Cloud: выбери Python 3.11 в Advanced settings при деплое!
-opencv-python-headless==4.10.0.84
+﻿# Streamlit Cloud: Python 3.11 (.python-version) + packages.txt (libgl1)
+# MediaPipe тянет opencv-contrib-python — ставим headless-вариант первым.
+opencv-contrib-python-headless==4.10.0.84
 numpy>=1.26.0,<3.0
 streamlit>=1.40.0
 streamlit-webrtc>=0.47.0
