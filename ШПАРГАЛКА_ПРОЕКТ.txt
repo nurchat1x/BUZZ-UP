@@ -10,7 +10,7 @@ GitHub: https://github.com/nurchat1x/BUZZ-UP
 Render (витрина): Docker Web Service из main
 Streamlit Cloud: https://buzz-up-legendarnysait.streamlit.app (запасной, камера слабая)
 
-⚠️ ЛОКАЛЬНЫЙ САЙТ — СВЯТОЙ. Идея и конcept автора. ИИ помогал с кодом.
+⚠️ ЛОКАЛЬНЫЙ САЙТ — СВЯТОЙ. Идея и концепция автора. ИИ помогал с кодом.
    Все лучшие фичи сначала локально. Не ломать OpenCV Live ради облака.
 
 СТЕК (актуальный)
