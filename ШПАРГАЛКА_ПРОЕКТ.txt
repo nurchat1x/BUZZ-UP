@@ -1,79 +1,132 @@
 BUZZ-UP — ШПАРГАЛКА ДЛЯ НОВОГО ЧАТА (скопируй целиком)
 ====================================================
+Обновлено: 24 июля 2026 — после чата про Render, камеру, Спринт 2 (звук + логи)
 
 ПРОЕКТ
 ------
-BUZZ-UP — детекция сонливости водителей.
+BUZZ-UP — детекция сонливости водителей + доведение до точки отдыха.
 Папка: C:\Users\Lenovo\OneDrive\Desktop\copy.of.project
 GitHub: https://github.com/nurchat1x/BUZZ-UP
-Streamlit Cloud: https://buzz-up-legendarnysait.streamlit.app
+Render (витрина): Docker Web Service из main
+Streamlit Cloud: https://buzz-up-legendarnysait.streamlit.app (запасной, камера слабая)
+
+⚠️ ЛОКАЛЬНЫЙ САЙТ — СВЯТОЙ. Идея и конcept автора. ИИ помогал с кодом.
+   Все лучшие фичи сначала локально. Не ломать OpenCV Live ради облака.
 
 СТЕК (актуальный)
 -----------------
 - app.py — главное Streamlit приложение
-- drowsiness_detector.py — MediaPipe Face Landmarker + EAR (НЕ старые .pkl)
+- drowsiness_detector.py — MediaPipe Face Landmarker + EAR
+- alert_sound.py — звук при «Спит» (Web Audio API)
+- fatigue_logger.py — логи в data/fatigue_log.jsonl
 - bus_stops.json — маршруты, точки отдыха, рейтинги
-- streamlit-webrtc — камера в браузере
-- MediaPipe >= 0.10.30 (Tasks API, НЕ mp.solutions — удалён в 0.10.30+)
+- Dockerfile + render.yaml — деплой Render
 
-ЛОКАЛЬНЫЙ ЗАПУСК (РАБОТАЕТ ОТЛИЧНО)
------------------------------------
+ЛОКАЛЬНЫЙ ЗАПУСК (ГЛАВНЫЙ)
+---------------------------
 cd "C:\Users\Lenovo\OneDrive\Desktop\copy.of.project"
 .\.venv\Scripts\activate
-pip install -r requirements.txt
-streamlit run app.py
+python -m streamlit run app.py
 → http://localhost:8501
-Камера + EAR + очки + темнота — всё работает локально.
 
-ЧТО СДЕЛАНО (СПРИНТ 1)
+⚠️ НЕ streamlit run app.py напрямую на Windows — Smart App Control блокирует .exe
+⚠️ Если cv2/matplotlib DLL — python -m streamlit; в коде stub matplotlib для MediaPipe
+
+РЕЖИМЫ КАМЕРЫ (локально)
+-------------------------
+1. OpenCV Live — РЕКОМЕНДУЕТСЯ. ▶ Включить камеру. Прямой доступ к веб-камере.
+2. WebRTC — START у плеера. STUN только локально (без принудительного TURN).
+
+На Render / облаке:
+- WebRTC часто НЕ работает (STUN/TURN, сеть)
+- Облачный UI: снимок st.camera_input, фото, видео
+- is_cloud_deploy() = RENDER=true или STREAMLIT_SHARING_MODE
+
+СПРИНТ 1 — СДЕЛАНО ✅
 ----------------------
-✅ MediaPipe + EAR вместо Haar + Logistic Regression
-✅ streamlit-webrtc (video_processor, не video_transformer)
-✅ Карта: маркеры 50–80м (не 9000м!), zoom на GPS пользователя
-✅ bus_stops.json обогащён рейтингами и удобствами
-✅ Деплой на Streamlit Cloud (Python 3.11 обязательно!)
+✅ MediaPipe + EAR (без .pkl)
+✅ streamlit-webrtc (video_processor)
+✅ Карта pydeck, bus_stops.json с рейтингами
+✅ OpenCV Live + WebRTC локально
+✅ Render Docker (libgl1, libgles2, libegl1)
+✅ Обход Windows matplotlib stub в drowsiness_detector.py
+✅ Облачный fallback без падения при import cv2
 
-STREAMLIT CLOUD — КРИТИЧНЫЕ ПРАВИЛА
------------------------------------
-1. Python 3.11 при деплое (Advanced settings). 3.14 ломает cv2!
-2. packages.txt — ТОЛЬКО libgl1-mesa-glx (НЕ libglib2.0-0 — ломает apt!)
-3. .pkl модели удалены из git — не нужны
-4. MediaPipe native libs на облаке часто НЕ работают → fallback: загрузка фото
-5. Полная камера в реальном времени — только локально или будущее Android app
+СПРИНТ 2 — В ПРОЦЕССЕ
+---------------------
+✅ 1. Звуковой алерт — alert_sound.py, sidebar «Тревога»
+✅ 2. Логи усталости — fatigue_logger.py, data/fatigue_log.jsonl
+⬜ 3. Fleet dashboard — таблица/график из логов, демо-водители
+⬜ 4. Сценарий скринкаста — ПИТЧ_СЦЕНАРИЙ.txt, demo mode
 
-HUGGING FACE
-------------
-- Отдельного Streamlit SDK больше нет (с апреля 2025)
-- Нужен Docker SDK (CPU basic free) ИЛИ просто Streamlit Cloud проще
-- Старый Space Nurchat1x/BUZZ-UP можно удалить
+ЛОГИ УСТАЛОСТИ
+--------------
+Файл: data/fatigue_log.jsonl (в .gitignore, только локально)
+События: drowsy_start, drowsy_continue, drowsy_end
+Поля: time, session_id, EAR, status, nearest_stop, mode
+Sidebar: вкл/выкл, пауза, просмотр сессии, скачать JSONL/CSV
 
-ПЛАН НА БУДУЩЕЕ
----------------
-Спринт 2: Fleet dashboard, логи усталости, звуковой алерт, скринкаст для питча
-Спринт 3: Пилот у перевозчика, Astana Hub, Android app в кабине
-Техника: OSM/Overpass, edge/offline, ИК-камера
+ЗВУК
+----
+Sidebar: «Звук при сонливости», пауза 3–30 сек, «Проверить звук»
+При «Спит» — сирена в браузере. Первый раз может нужен клик (autoplay policy).
 
-ЦЕЛЕВАЯ АУДИТОРИЯ
------------------
-B2B: перевозчики, дальнобой, fleet, логистика, страховые
-Фишка: не просто «разбудить», а «довести до точки отдыха»
+ДЕПЛОЙ
+------
+Локаль — эталон.
+Render: Runtime Docker, main branch, auto-deploy. Инструкция: ИНСТРУКЦИЯ_RENDER.txt
+HF Docker — Paid (PRO). Gradio ZeroGPU — бесплатно, но другой UI.
+Streamlit Cloud — карта + фото, live-камера ненадёжна.
 
-ИЗВЕСТНЫЕ ОШИБКИ И ФИКСЫ
------------------------
-- mp.solutions нет → Tasks API FaceLandmarker
-- video_transformer → video_processor (streamlit-webrtc 0.47+)
-- st.session_state в WebRTC worker → зависание кадра
-- git push rejected → git pull origin main --rebase && git push
-- HF token в git remote → отозвать на huggingface.co/settings/tokens
+packages.txt (Streamlit Cloud): libgl1
+.python-version: 3.11
+
+ИЗ ЭТОГО ЧАТА — ХРОНОЛОГИЯ
+---------------------------
+1. Streamlit Cloud: ImportError cv2 / libGLES — packages.txt, headless opencv
+2. Windows: streamlit.exe заблокирован → python -m streamlit run app.py
+3. matplotlib _image DLL → stub в drowsiness_detector.py
+4. HF: Docker = Paid; выбрали Render
+5. Render: сайт поднялся; WebRTC «Connection taking longer» → TURN только на облаке
+6. Локально камера не работала → iceTransportPolicy relay ломал localhost
+7. Fix: OpenCV Live + STUN-only локально → ОБА РЕЖИМА ЗАРАБОТАЛИ
+8. Спринт 2: звук ✅, логи ✅
 
 ФАЙЛЫ НЕ ТРОГАТЬ БЕЗ НУЖДЫ
 --------------------------
-train.py, infer.py — старый пайплайн, для app.py не нужны
+train.py, infer.py — старый пайплайн (.pkl), не для app.py
 
-КОМАНДА ДЛЯ PUSH ПОСЛЕ ПРАВОК
-------------------------------
+КОМАНДЫ GIT
+-----------
 git add .
 git commit -m "описание"
 git pull origin main --rebase
 git push origin main
-→ Streamlit Cloud пересоберёт сам
+
+СПРИНТ 3 (БУДУЩЕЕ)
+------------------
+- Пилот у перевозчика, Astana Hub
+- Android app в кабине
+- OSM/Overpass для точек отдыха
+- MediaPipe в браузере (JS) — камера везде без WebRTC
+- ИК-камера
+
+ЦЕЛЕВАЯ АУДИТОРИЯ
+-----------------
+B2B: перевозчики, fleet, логистика, страховые
+Фишка: не просто «разбудить», а «довести до точки отдыха»
+
+СЛЕДУЮЩИЙ ШАГ В НОВОМ ЧАТЕ
+---------------------------
+Напиши: «Продолжаем Спринт 2 — fleet dashboard» или «ПИТЧ_СЦЕНАРИЙ»
+Приложи эту шпаргалку целиком.
+
+ИЗВЕСТНЫЕ ФИКСЫ
+---------------
+- mp.solutions нет → Tasks API FaceLandmarker
+- video_transformer → video_processor
+- st.session_state в WebRTC worker → зависание
+- git push rejected → git pull origin main --rebase && git push
+- HF token в git remote → отозвать на huggingface.co/settings/tokens
+- BUZZUP_FORCE_WEBRTC=1 — принудить WebRTC UI на Render
+- BUZZUP_FORCE_CLOUD_UI=1 — принудить облачный UI локально (тест)

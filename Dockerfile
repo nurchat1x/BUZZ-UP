@@ -19,7 +19,7 @@ RUN mkdir -p models && curl -L \
     "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task" \
     -o models/face_landmarker.task
 
-COPY app.py drowsiness_detector.py bus_stops.json ./
+COPY app.py drowsiness_detector.py alert_sound.py fatigue_logger.py bus_stops.json ./
 
 ENV PORT=8501
 EXPOSE 8501

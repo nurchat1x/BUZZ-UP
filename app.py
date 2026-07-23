@@ -14,6 +14,9 @@ import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
 from streamlit_js_eval import get_geolocation
 
+from alert_sound import handle_drowsiness_alert, play_drowsiness_alert_sound
+from fatigue_logger import ensure_session_id, handle_fatigue_log, render_fatigue_log_sidebar
+
 st.set_page_config(
     page_title="BUZZ-UP — Детекция Сонливости",
     page_icon="😴",
@@ -145,6 +148,22 @@ def run_frame_detection(
             detector.close()
 
 
+def get_detection_mode() -> str:
+    if st.session_state.get("opencv_cam_active"):
+        return "opencv_live"
+    if is_cloud_deploy():
+        return "cloud"
+    return "local"
+
+
+def track_fatigue_from_result(result) -> None:
+    handle_fatigue_log(
+        result,
+        mode=get_detection_mode(),
+        nearest_stop=st.session_state.get("nearest_stop"),
+    )
+
+
 def render_detection_metrics(result) -> None:
     if result.status == "Спит":
         st.error(f"😴 **{result.status}**")
@@ -162,6 +181,8 @@ def render_detection_metrics(result) -> None:
     c1.metric("EAR левый", f"{result.left_ear:.3f}")
     c2.metric("EAR правый", f"{result.right_ear:.3f}")
     st.metric("Кадров ниже порога", result.closed_frames)
+    handle_drowsiness_alert(result.status)
+    track_fatigue_from_result(result)
 
 
 @st.cache_resource
@@ -779,6 +800,24 @@ def main():
                 """
             )
 
+        st.markdown("---")
+        st.subheader("🔊 Тревога")
+        st.toggle("Звук при сонливости", value=True, key="sound_alert_enabled")
+        st.slider(
+            "Пауза между сигналами (сек)",
+            min_value=3,
+            max_value=30,
+            value=5,
+            step=1,
+            key="alert_cooldown_sec",
+        )
+        if st.button("🔔 Проверить звук", use_container_width=True):
+            play_drowsiness_alert_sound()
+            st.caption("Если тихо — кликни по странице и нажми снова (блокировка автозвука браузера).")
+
+        ensure_session_id()
+        render_fatigue_log_sidebar()
+
     col1, col2, col3 = st.columns([2, 1, 1])
 
     detector_ok, detector_error = mediapipe_runtime_ok()
@@ -869,7 +908,7 @@ def main():
                 """
                 1. Режим **OpenCV Live** → **▶ Включить камеру**
                 2. Смотри в камеру — EAR и статус справа
-                3. Закрой глаза ~1 сек → статус **Спит**
+                3. Закрой глаза ~1 сек → статус **Спит** + **звук**
                 4. Выбери маршрут → **Найти ближайшую остановку**
                 """
             )
