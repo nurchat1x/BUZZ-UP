@@ -2,11 +2,14 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
+# OpenCV + MediaPipe native libs (libGLESv2.so.2, libGL.so.1)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
+    libegl1 \
     libgl1 \
     libglib2.0-0 \
+    libgles2 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
@@ -18,8 +21,9 @@ RUN mkdir -p models && curl -L \
 
 COPY app.py drowsiness_detector.py bus_stops.json ./
 
+ENV PORT=8501
 EXPOSE 8501
 
-HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health
+HEALTHCHECK CMD curl --fail "http://localhost:${PORT}/_stcore/health" || exit 1
 
-ENTRYPOINT ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+CMD ["sh", "-c", "streamlit run app.py --server.port=${PORT} --server.address=0.0.0.0 --server.headless=true --browser.gatherUsageStats=false"]

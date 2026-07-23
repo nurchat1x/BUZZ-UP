@@ -1,0 +1,90 @@
+BUZZ-UP — ДЕПЛОЙ НА RENDER.COM (Docker)
+=========================================
+Репозиторий: https://github.com/nurchat1x/BUZZ-UP
+
+ЧТО УЖЕ ПОДГОТОВЛЕНО В ПРОЕКТЕ
+-------------------------------
+✅ Dockerfile — Streamlit + libgl1 + libgles2 + libegl1 (для OpenCV/MediaPipe)
+✅ render.yaml — настройки free web service
+✅ .dockerignore — быстрая сборка
+✅ app.py / drowsiness_detector.py — без изменений логики
+
+
+ШАГ 1 — АККАУНТ RENDER
+-----------------------
+1. Открой https://render.com
+2. Sign Up → «Sign in with GitHub»
+3. Разреши доступ к репозиторию nurchat1x/BUZZ-UP
+
+
+ШАГ 2 — СОЗДАТЬ WEB SERVICE
+----------------------------
+1. Dashboard → New + → Web Service
+2. Connect repository: nurchat1x / BUZZ-UP
+3. Настройки:
+
+   Name:           buzz-up  (или любое)
+   Region:         ближайший доступный (часто Oregon на free)
+   Branch:         main
+   Runtime:        Docker          ← ВАЖНО! Не Python, а Docker
+   Instance type:  Free
+
+   Advanced (если есть):
+   • Health Check Path: /_stcore/health
+
+4. Нажми Create Web Service
+
+
+ШАГ 3 — ЖДАТЬ СБОРКУ
+---------------------
+• Первая сборка 5–15 минут (pip + модель MediaPipe ~10 MB)
+• В Logs смотри:
+  - «Build successful»
+  - «Your service is live at https://buzz-up-xxxx.onrender.com»
+
+
+ШАГ 4 — ПРОВЕРКА
+----------------
+Открой URL Render в браузере (не localhost):
+
+1. Карта и маршруты — должны работать
+2. Камера — START у видеоплеера, разрешить камеру
+3. EAR и статус «Спит / Не Спит»
+4. Загрузка фото — если камера недоступна
+
+Free tier: если 15+ мин никто не заходил — сервис «засыпает».
+Первый заход после сна: загрузка 30–60 сек — это нормально.
+
+
+АЛЬТЕРНАТИВА — BLUEPRINT (render.yaml)
+--------------------------------------
+New + → Blueprint → подключить BUZZ-UP → Apply
+Render прочитает render.yaml автоматически.
+
+
+ЛОКАЛЬНЫЙ ТЕСТ DOCKER (ОПЦИОНАЛЬНО)
+-----------------------------------
+docker build -t buzz-up .
+docker run -p 8501:8501 -e PORT=8501 buzz-up
+→ http://localhost:8501
+
+
+ЕСЛИ СБОРКА УПАЛА
+-----------------
+• Out of memory → на free 512MB RAM; убери из requirements train-only пакеты
+• cv2 / libGLES → проверь, что Runtime = Docker (не Native Python)
+• Port error → Dockerfile уже использует переменную PORT от Render
+
+
+ПОСЛЕ УСПЕШНОГО ДЕПЛОЯ
+----------------------
+• Ссылку можно давать кому угодно — открывается как обычный сайт
+• Streamlit Cloud можно оставить как запасной или отключить
+• Auto-deploy: каждый git push в main → Render пересобирает сам
+
+
+КОМАНДЫ ДЛЯ PUSH ОБНОВЛЕНИЙ
+---------------------------
+git add .
+git commit -m "описание"
+git push origin main

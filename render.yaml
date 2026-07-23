@@ -1,0 +1,8 @@
+# Render Blueprint — опционально: New > Blueprint > подключить репозиторий
+services:
+  - type: web
+    name: buzz-up
+    runtime: docker
+    plan: free
+    healthCheckPath: /_stcore/health
+    autoDeploy: true

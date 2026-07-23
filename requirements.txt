@@ -1,5 +1,5 @@
-﻿# Streamlit Cloud: Python 3.11 (.python-version) + packages.txt (libgl1)
-# MediaPipe тянет opencv-contrib-python — ставим headless-вариант первым.
+﻿# Render Docker + Streamlit Cloud (.python-version, packages.txt)
+# MediaPipe тянет opencv-contrib-python — headless-вариант первым.
 opencv-contrib-python-headless==4.10.0.84
 numpy>=1.26.0,<3.0
 streamlit>=1.40.0
