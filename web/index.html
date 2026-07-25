@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BUZZ-UP — Live (2.0)</title>
+    <meta
+      name="description"
+      content="BUZZ-UP: детекция сонливости в реальном времени в браузере (MediaPipe + EAR)."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+  </head>
+  <body>
+    <div class="app">
+      <header class="top">
+        <h1 class="brand">BUZZ-UP</h1>
+        <nav class="tabs" role="tablist">
+          <button type="button" class="tab active" data-tab="monitor">Мониторинг</button>
+          <button type="button" class="tab" data-tab="fleet">Fleet</button>
+        </nav>
+      </header>
+
+      <section id="panel-monitor" class="tab-panel monitor-shell">
+        <aside class="side-panel panel">
+          <div class="side-block">
+            <h2 class="section-title">⚙️ Детекция</h2>
+            <p class="section-sub">Порог EAR и чувствительность</p>
+            <label class="stack-label">
+              Порог EAR
+              <input id="threshold" type="range" min="0.12" max="0.35" step="0.01" value="0.21" />
+              <span id="threshold-val">0.21</span>
+            </label>
+            <label class="stack-label">
+              Кадров до «Спит»
+              <input id="frames" type="range" min="10" max="60" step="1" value="30" />
+              <span id="frames-val">30</span>
+            </label>
+          </div>
+
+          <div class="side-block">
+            <h2 class="section-title">🔊 Тревога</h2>
+            <label class="inline-check">
+              <input id="sound" type="checkbox" checked />
+              Звук при сонливости
+            </label>
+          </div>
+
+          <div class="side-block">
+            <h2 class="section-title">🎬 Demo mode</h2>
+            <div class="controls tight">
+              <button id="btn-demo-drowsy" class="btn-primary" type="button">😴</button>
+              <button id="btn-demo-awake" class="btn-secondary" type="button">👁️</button>
+              <button id="btn-demo-clear" class="btn-secondary" type="button" disabled>↩️</button>
+            </div>
+            <p id="demo-hint" class="hint hidden">Demo активен</p>
+          </div>
+
+          <div class="side-block">
+            <h2 class="section-title">📝 Логи</h2>
+            <label class="inline-check">
+              <input id="log-enabled" type="checkbox" checked />
+              Записывать
+            </label>
+            <label class="stack-label">
+              Пауза (сек)
+              <input id="log-cooldown" type="range" min="5" max="60" step="1" value="10" />
+              <span id="log-cooldown-val">10</span>
+            </label>
+            <p id="session-label" class="hint compact"></p>
+            <div class="controls tight">
+              <button id="btn-export-csv" class="btn-secondary" type="button">CSV</button>
+              <button id="btn-clear-logs" class="btn-secondary" type="button">Очистить</button>
+            </div>
+            <ul id="log-list" class="log-list compact"></ul>
+          </div>
+        </aside>
+
+        <div class="monitor-grid">
+          <section class="panel col-video">
+            <h2 class="section-title">📹 Видео</h2>
+            <p class="section-sub">Live-камера и анализ EAR</p>
+            <div class="video-wrap">
+              <video id="video" playsinline muted></video>
+              <canvas id="overlay" class="overlay-hidden"></canvas>
+              <div id="placeholder" class="placeholder">▶ Включить камеру</div>
+            </div>
+            <div class="controls tight">
+              <button id="btn-start" class="btn-primary" type="button">▶ Включить</button>
+              <button id="btn-stop" class="btn-secondary" type="button" disabled>⏹ Стоп</button>
+            </div>
+            <div id="error" class="error" role="alert"></div>
+          </section>
+
+          <section class="panel col-status">
+            <h2 class="section-title">📊 Статус</h2>
+            <p class="section-sub">Состояние водителя</p>
+            <div class="status-stack">
+              <div class="metric status-card">
+                <label>Статус</label>
+                <div id="status" class="value status-missing">—</div>
+              </div>
+              <div class="metric">
+                <label>EAR</label>
+                <div id="ear" class="value">—</div>
+              </div>
+              <div class="metric">
+                <label>Кадров</label>
+                <div id="closed" class="value">0</div>
+              </div>
+              <div class="metric">
+                <label>Уверенность</label>
+                <div id="confidence" class="value">—</div>
+              </div>
+            </div>
+
+            <div class="divider"></div>
+            <h2 class="section-title">🚌 Точка отдыха</h2>
+            <p class="section-sub">Ближайшая остановка</p>
+            <div id="stop-details" class="stop-details"></div>
+            <div id="stop-advice" class="stop-advice hint">🔍 Найдите остановку справа</div>
+
+            <div class="divider"></div>
+            <h2 class="section-title">📋 Быстрый старт</h2>
+            <ol class="quick-start">
+              <li>▶ Включить камеру</li>
+              <li>Смотри EAR и статус</li>
+              <li>Закрой глаза ~1 сек → «Спит»</li>
+              <li>Маршрут → Найти остановку</li>
+            </ol>
+          </section>
+
+          <section class="panel col-route">
+            <h2 class="section-title">🗺️ Маршрут</h2>
+            <p class="section-sub">GPS и карта</p>
+            <label class="stack-label">
+              Маршрут
+              <select id="route-select"></select>
+            </label>
+            <div class="coord-row">
+              <label class="stack-label">
+                Широта
+                <input id="lat" type="number" step="0.0001" value="43.2389" />
+              </label>
+              <label class="stack-label">
+                Долгота
+                <input id="lng" type="number" step="0.0001" value="76.9456" />
+              </label>
+            </div>
+            <div class="controls tight">
+              <button id="btn-geo" class="btn-secondary" type="button">📍 GPS</button>
+              <button id="btn-find-stop" class="btn-primary" type="button">Найти</button>
+            </div>
+            <div id="map" class="map"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="panel-fleet" class="tab-panel hidden">
+        <section class="panel">
+          <h2 class="section-title">🚛 Fleet</h2>
+          <p class="section-sub">Сводка для диспетчера / питча</p>
+          <label class="inline-check">
+            <input id="fleet-demo" type="checkbox" checked />
+            Показать демо-водителей (для питча)
+          </label>
+          <div class="metrics" id="fleet-metrics"></div>
+        </section>
+
+        <section class="panel section">
+          <h2 class="section-title">🚛 Сводка по водителям</h2>
+          <p class="section-sub">Статус fleet в реальном времени</p>
+          <div class="table-wrap">
+            <table id="fleet-table">
+              <thead>
+                <tr>
+                  <th>Водитель</th>
+                  <th>ТС</th>
+                  <th>Маршрут</th>
+                  <th>Статус</th>
+                  <th>Эпизоды</th>
+                  <th>Min EAR</th>
+                  <th>Последнее</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p id="fleet-empty" class="hint hidden">
+            Нет данных. Включите камеру на вкладке «Мониторинг» или демо-водителей выше.
+          </p>
+        </section>
+
+        <section class="panel section" id="live-driver-panel">
+          <h2 class="section-title">🎥 Live-водитель</h2>
+          <p class="section-sub">Текущая смена на мониторинге</p>
+          <div class="metrics" id="live-driver-metrics">
+            <div class="metric">
+              <label>Статус</label>
+              <div id="live-status" class="value status-missing">—</div>
+            </div>
+            <div class="metric">
+              <label>EAR</label>
+              <div id="live-ear" class="value">—</div>
+            </div>
+            <div class="metric">
+              <label>Кадров ниже порога</label>
+              <div id="live-closed" class="value">0</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel section">
+          <h2 class="section-title">🔎 Детали</h2>
+          <p class="section-sub">График EAR и журнал событий</p>
+          <label class="form-label">
+            Детали по водителю
+            <select id="fleet-driver-select"></select>
+          </label>
+
+          <h3 class="subsection-title">📈 EAR по эпизодам</h3>
+          <canvas id="ear-chart" class="ear-chart" width="800" height="260"></canvas>
+          <p id="ear-chart-empty" class="hint hidden">Нет точек для графика по этому водителю.</p>
+
+          <h3 class="subsection-title">📋 События</h3>
+          <div class="table-wrap">
+            <table id="fleet-events-table">
+              <thead>
+                <tr>
+                  <th>Время</th>
+                  <th>Событие</th>
+                  <th>EAR</th>
+                  <th>Статус</th>
+                  <th>Остановка</th>
+                  <th>км</th>
+                  <th>Режим</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel section">
+          <details class="help-box">
+            <summary>ℹ️ Как читать дашборд</summary>
+            <ul>
+              <li><b>Эпизод</b> — от начала сонливости до «проснулся».</li>
+              <li><b>Min EAR</b> — минимальный EAR в эпизодах.</li>
+              <li><b>Демо-водители</b> — симуляция; <b>Вы (live)</b> — ваши логи.</li>
+            </ul>
+          </details>
+        </section>
+      </section>
+
+      <footer class="footer">
+        <span>BUZZ-UP</span>
+        <span class="version">(2.0)</span>
+      </footer>
+    </div>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
