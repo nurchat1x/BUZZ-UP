@@ -597,7 +597,7 @@ th {
 
 .credit-label {
   display: inline-block;
-  min-width: 11.5rem;
+  min-width: 12.5rem;
   margin-right: 0.35rem;
   color: var(--buzz-cyan);
   font-weight: 600;
