@@ -301,8 +301,8 @@ function renderMap(routeId: string, userLat: number, userLon: number, stop: Near
 
   L.circleMarker([userLat, userLon], {
     radius: 8,
-    color: "#22d3ee",
-    fillColor: "#22d3ee",
+    color: "#3ecfb0",
+    fillColor: "#3ecfb0",
     fillOpacity: 0.9,
   })
     .bindPopup("Вы здесь")
@@ -312,8 +312,8 @@ function renderMap(routeId: string, userLat: number, userLon: number, stop: Near
     const isNearest = stop && s.id === stop.id;
     L.circleMarker([s.lat, s.lng], {
       radius: isNearest ? 9 : 6,
-      color: isNearest ? "#f97316" : "#6366f1",
-      fillColor: isNearest ? "#f97316" : "#6366f1",
+      color: isNearest ? "#e8a54b" : "#1c9279",
+      fillColor: isNearest ? "#e8a54b" : "#1c9279",
       fillOpacity: 0.85,
     })
       .bindPopup(`<b>${s.name}</b><br>${s.address ?? ""}`)
@@ -412,7 +412,7 @@ function drawEarChart(points: { time: string; ear: number }[]): void {
   const w = earChart.width;
   const h = earChart.height;
   c.clearRect(0, 0, w, h);
-  c.fillStyle = "rgba(6, 8, 15, 0.9)";
+  c.fillStyle = "rgba(10, 32, 28, 0.95)";
   c.fillRect(0, 0, w, h);
 
   if (points.length === 0) {
@@ -431,9 +431,9 @@ function drawEarChart(points: { time: string; ear: number }[]): void {
   const maxY = Math.max(0.35, ...ears);
   const spanY = maxY - minY || 1;
 
-  c.strokeStyle = "rgba(148, 163, 184, 0.2)";
-  c.fillStyle = "#8b9cb3";
-  c.font = "12px JetBrains Mono, monospace";
+  c.strokeStyle = "rgba(180, 220, 210, 0.18)";
+  c.fillStyle = "rgba(220, 240, 235, 0.7)";
+  c.font = "12px Roboto Mono, monospace";
   for (let i = 0; i <= 4; i++) {
     const y = pad.t + (plotH * i) / 4;
     const val = maxY - (spanY * i) / 4;
@@ -444,7 +444,7 @@ function drawEarChart(points: { time: string; ear: number }[]): void {
     c.fillText(val.toFixed(2), 6, y + 4);
   }
 
-  c.strokeStyle = "#22d3ee";
+  c.strokeStyle = "#3ecfb0";
   c.lineWidth = 2;
   c.beginPath();
   points.forEach((p, i) => {
@@ -455,7 +455,7 @@ function drawEarChart(points: { time: string; ear: number }[]): void {
   });
   c.stroke();
 
-  c.fillStyle = "#f97316";
+  c.fillStyle = "#e8a54b";
   points.forEach((p, i) => {
     const x = pad.l + (points.length === 1 ? plotW / 2 : (plotW * i) / (points.length - 1));
     const y = pad.t + plotH * (1 - (p.ear - minY) / spanY);
@@ -464,7 +464,7 @@ function drawEarChart(points: { time: string; ear: number }[]): void {
     c.fill();
   });
 
-  c.fillStyle = "#8b9cb3";
+  c.fillStyle = "rgba(220, 240, 235, 0.7)";
   const step = Math.max(1, Math.floor(points.length / 6));
   points.forEach((p, i) => {
     if (i % step !== 0 && i !== points.length - 1) return;
