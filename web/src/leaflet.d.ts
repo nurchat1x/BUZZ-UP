@@ -1,5 +1,6 @@
 interface LeafletMap {
   setView(latlng: [number, number], zoom: number): LeafletMap;
+  flyTo(latlng: [number, number], zoom?: number): LeafletMap;
   fitBounds(bounds: unknown, opts?: { padding?: [number, number] }): LeafletMap;
   invalidateSize(): void;
 }
@@ -12,6 +13,7 @@ interface LeafletLayerGroup {
 interface LeafletMarker {
   bindPopup(html: string): LeafletMarker;
   addTo(layer: LeafletLayerGroup): LeafletMarker;
+  openPopup(): LeafletMarker;
 }
 
 declare const L: {

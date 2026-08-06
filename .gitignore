@@ -5,3 +5,5 @@ __pycache__/
 models/*.task
 data/
 .streamlit/secrets.toml
+web/node_modules/
+web/dist/

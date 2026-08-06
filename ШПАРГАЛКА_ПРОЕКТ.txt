@@ -1,132 +1,206 @@
 BUZZ-UP — ШПАРГАЛКА ДЛЯ НОВОГО ЧАТА (скопируй целиком)
 ====================================================
-Обновлено: 24 июля 2026 — после чата про Render, камеру, Спринт 2 (звук + логи)
+Обновлено: 6 августа 2026 — Chart.js Fleet + «На меня» на карте + актуальный web 2.0
 
+КАК НАЧАТЬ НОВЫЙ ЧАТ В CURSOR
+-----------------------------
+1. File → Open Folder → C:\Users\Lenovo\OneDrive\Desktop\copy.of.project
+2. Вставь ЭТУ шпаргалку целиком в первое сообщение
+3. Напиши задачу одним предложением
+
+
+═══════════════════════════════════════════════════════════
 ПРОЕКТ
-------
-BUZZ-UP — детекция сонливости водителей + доведение до точки отдыха.
+═══════════════════════════════════════════════════════════
+
+BUZZ-UP — детекция сонливости коммерческих водителей + ближайшая точка отдыха + Fleet.
+Идея автора. Локальный Streamlit — «святой» эталон продукта. ИИ помогал с кодом.
+
 Папка: C:\Users\Lenovo\OneDrive\Desktop\copy.of.project
 GitHub: https://github.com/nurchat1x/BUZZ-UP
-Render (витрина): Docker Web Service из main
-Streamlit Cloud: https://buzz-up-legendarnysait.streamlit.app (запасной, камера слабая)
 
-⚠️ ЛОКАЛЬНЫЙ САЙТ — СВЯТОЙ. Идея и концепция автора. ИИ помогал с кодом.
-   Все лучшие фичи сначала локально. Не ломать OpenCV Live ради облака.
+Отдельный репо под мобилку (НЕ смешивать):
+  Папка: C:\Users\Lenovo\OneDrive\Desktop\BUZZ-UP-app
+  GitHub: https://github.com/nurchat1x/Buzz-Up-app
 
-СТЕК (актуальный)
------------------
-- app.py — главное Streamlit приложение
-- drowsiness_detector.py — MediaPipe Face Landmarker + EAR
-- alert_sound.py — звук при «Спит» (Web Audio API)
-- fatigue_logger.py — логи в data/fatigue_log.jsonl
-- bus_stops.json — маршруты, точки отдыха, рейтинги
-- Dockerfile + render.yaml — деплой Render
+ДВА ПРОДУКТА В ОДНОМ РЕПО (веб)
+-------------------------------
+«Моя модель» = локальный Streamlit (app.py) — OpenCV Live, карта, Fleet на Python.
+«web 2.0» = папка web/ — публичный браузерный live (MediaPipe JS + EAR).
+  Деплой: Vercel, Root Directory = web. Push в main → авто-redeploy.
+  Название в UI: не писать «Твоя модель»; в футере можно оставлять «(2.0)».
 
-ЛОКАЛЬНЫЙ ЗАПУСК (ГЛАВНЫЙ)
----------------------------
-cd "C:\Users\Lenovo\OneDrive\Desktop\copy.of.project"
-.\.venv\Scripts\activate
-python -m streamlit run app.py
-→ http://localhost:8501
+⚠️ ЛОКАЛЬНЫЙ Streamlit НЕ ЛОМАТЬ ради облака.
+   Лучшие фичи сначала локально, потом зеркалить в web/.
 
-⚠️ НЕ streamlit run app.py напрямую на Windows — Smart App Control блокирует .exe
-⚠️ Если cv2/matplotlib DLL — python -m streamlit; в коде stub matplotlib для MediaPipe
 
-РЕЖИМЫ КАМЕРЫ (локально)
--------------------------
-1. OpenCV Live — РЕКОМЕНДУЕТСЯ. ▶ Включить камеру. Прямой доступ к веб-камере.
-2. WebRTC — START у плеера. STUN только локально (без принудительного TURN).
+═══════════════════════════════════════════════════════════
+СТЕК
+═══════════════════════════════════════════════════════════
 
-На Render / облаке:
-- WebRTC часто НЕ работает (STUN/TURN, сеть)
-- Облачный UI: снимок st.camera_input, фото, видео
-- is_cloud_deploy() = RENDER=true или STREAMLIT_SHARING_MODE
+Streamlit (Моя модель):
+- app.py — главное приложение
+- drowsiness_detector.py — MediaPipe Face Landmarker + EAR (Python)
+- alert_sound.py — звук при «Спит»
+- fatigue_logger.py — data/fatigue_log.jsonl
+- fleet_dashboard.py — Fleet (таблица, график, демо-водители)
+- demo_mode.py — симуляция для скринкаста
+- ui_theme.py — тёмный UI
+- bus_stops.json — маршруты / точки отдыха
+- Dockerfile + render.yaml — Render витрина
+- .streamlit/config.toml — тема
 
-СПРИНТ 1 — СДЕЛАНО ✅
-----------------------
-✅ MediaPipe + EAR (без .pkl)
-✅ streamlit-webrtc (video_processor)
-✅ Карта pydeck, bus_stops.json с рейтингами
-✅ OpenCV Live + WebRTC локально
-✅ Render Docker (libgl1, libgles2, libegl1)
-✅ Обход Windows matplotlib stub в drowsiness_detector.py
-✅ Облачный fallback без падения при import cv2
+web/ (публичный live 2.0):
+- Vite + TypeScript
+- src/ear.ts — EAR как в Python (порог 0.21, 30 кадров)
+- src/detector.ts — MediaPipe Face Landmarker (JS, модель с CDN)
+- src/alert.ts — Web Audio тревога
+- src/demo.ts — Demo mode 😴 / 👁️
+- src/logger.ts — логи в localStorage + CSV (НЕ на сервер)
+- src/route.ts — маршруты / ближайшая остановка
+- src/fleet.ts — Fleet + демо-водители (seed в localStorage)
+- src/main.ts — камера, вкладки, карта Leaflet, Chart.js
+- public/bus_stops.json — копия остановок для web
+- Chart.js 4.4.8 (CDN) — интерактивный график EAR во Fleet
+- Leaflet — карта маршрута
+- vercel.json — Root Directory = web
+- Бренд: teal (#1c9279 / #3ecfb0), шрифты Montserrat + Roboto
 
-СПРИНТ 2 — В ПРОЦЕССЕ
----------------------
-✅ 1. Звуковой алерт — alert_sound.py, sidebar «Тревога»
-✅ 2. Логи усталости — fatigue_logger.py, data/fatigue_log.jsonl
-⬜ 3. Fleet dashboard — таблица/график из логов, демо-водители
-⬜ 4. Сценарий скринкаста — ПИТЧ_СЦЕНАРИЙ.txt, demo mode
+Документы:
+- ПИТЧ_СЦЕНАРИЙ.txt — демо локального Streamlit 2–3 мин
+- ДЕМО_ВИДЕО_САЙТ.txt — демо публичного web 2.0
+- ПРЕЗЕНТАЦИЯ_МАТЕРИАЛЫ.txt — блоки под слайды
+- ИНСТРУКЦИЯ_HF.txt / ИНСТРУКЦИЯ_ДЛЯ_ДРУГА.txt — вспомогательные
 
-ЛОГИ УСТАЛОСТИ
---------------
-Файл: data/fatigue_log.jsonl (в .gitignore, только локально)
-События: drowsy_start, drowsy_continue, drowsy_end
-Поля: time, session_id, EAR, status, nearest_stop, mode
-Sidebar: вкл/выкл, пауза, просмотр сессии, скачать JSONL/CSV
 
-ЗВУК
-----
-Sidebar: «Звук при сонливости», пауза 3–30 сек, «Проверить звук»
-При «Спит» — сирена в браузере. Первый раз может нужен клик (autoplay policy).
+═══════════════════════════════════════════════════════════
+ЗАПУСК
+═══════════════════════════════════════════════════════════
 
-ДЕПЛОЙ
-------
-Локаль — эталон.
-Render: Runtime Docker, main branch, auto-deploy. Инструкция: ИНСТРУКЦИЯ_RENDER.txt
-HF Docker — Paid (PRO). Gradio ZeroGPU — бесплатно, но другой UI.
-Streamlit Cloud — карта + фото, live-камера ненадёжна.
+Streamlit (эталон live-камеры на ноутбуке):
+  cd "C:\Users\Lenovo\OneDrive\Desktop\copy.of.project"
+  .\.venv\Scripts\activate
+  python -m streamlit run app.py
+  → http://localhost:8501
+  ⚠️ НЕ streamlit run app.py напрямую на Windows (Smart App Control)
 
-packages.txt (Streamlit Cloud): libgl1
-.python-version: 3.11
+web/ локально:
+  cd web
+  npm install
+  npm run dev
+  → http://localhost:5173
+  Сборка: npm run build
 
-ИЗ ЭТОГО ЧАТА — ХРОНОЛОГИЯ
----------------------------
-1. Streamlit Cloud: ImportError cv2 / libGLES — packages.txt, headless opencv
-2. Windows: streamlit.exe заблокирован → python -m streamlit run app.py
-3. matplotlib _image DLL → stub в drowsiness_detector.py
-4. HF: Docker = Paid; выбрали Render
-5. Render: сайт поднялся; WebRTC «Connection taking longer» → TURN только на облаке
-6. Локально камера не работала → iceTransportPolicy relay ломал localhost
-7. Fix: OpenCV Live + STUN-only локально → ОБА РЕЖИМА ЗАРАБОТАЛИ
-8. Спринт 2: звук ✅, логи ✅
+Публичный live (команде):
+  Vercel → проект из github.com/nurchat1x/BUZZ-UP
+  Root Directory = web
+  После push в main сайт обновляется сам
 
-ФАЙЛЫ НЕ ТРОГАТЬ БЕЗ НУЖДЫ
---------------------------
-train.py, infer.py — старый пайплайн (.pkl), не для app.py
 
-КОМАНДЫ GIT
------------
-git add .
-git commit -m "описание"
-git pull origin main --rebase
-git push origin main
+═══════════════════════════════════════════════════════════
+ЧТО УЖЕ ЕСТЬ В web/ (актуально на 6 авг 2026)
+═══════════════════════════════════════════════════════════
 
-СПРИНТ 3 (БУДУЩЕЕ)
-------------------
-- Пилот у перевозчика, Astana Hub
-- Android app в кабине
-- OSM/Overpass для точек отдыха
-- MediaPipe в браузере (JS) — камера везде без WebRTC
-- ИК-камера
+Вкладки: Мониторинг | Маршрут | Fleet
 
-ЦЕЛЕВАЯ АУДИТОРИЯ
------------------
-B2B: перевозчики, fleet, логистика, страховые
-Фишка: не просто «разбудить», а «довести до точки отдыха»
+Мониторинг:
+  ✅ Live-камера (getUserMedia) + MediaPipe + EAR в браузере
+  ✅ Статус «Спит» / «Не Спит», EAR, счётчик закрытых кадров
+  ✅ Звук тревоги
+  ✅ Demo mode без закрывания глаз
+  ✅ Логи событий в localStorage + скачать CSV
+  ✅ Видео НЕ уходит на сервер
 
-СЛЕДУЮЩИЙ ШАГ В НОВОМ ЧАТЕ
----------------------------
-Напиши: «Продолжаем Спринт 2 — fleet dashboard» или «ПИТЧ_СЦЕНАРИЙ»
-Приложи эту шпаргалку целиком.
+Маршрут:
+  ✅ Выбор маршрута из bus_stops.json
+  ✅ GPS / ручной lat-lng / «Найти» ближайшую остановку
+  ✅ Кнопка «🎯 На меня» — геолокация + flyTo zoom 15 на себя
+     (в отличие от GPS/Найти, которые показывают весь маршрут fitBounds)
+  ✅ Карта Leaflet: ты + ближайшая остановка
 
-ИЗВЕСТНЫЕ ФИКСЫ
----------------
-- mp.solutions нет → Tasks API FaceLandmarker
-- video_transformer → video_processor
-- st.session_state в WebRTC worker → зависание
-- git push rejected → git pull origin main --rebase && git push
-- HF token в git remote → отозвать на huggingface.co/settings/tokens
-- BUZZUP_FORCE_WEBRTC=1 — принудить WebRTC UI на Render
-- BUZZUP_FORCE_CLOUD_UI=1 — принудить облачный UI локально (тест)
+Fleet:
+  ✅ Метрики + список водителей (демо seed + «Вы (live)»)
+  ✅ Таблица событий по выбранному водителю
+  ✅ Интерактивный график EAR (Chart.js): hover tooltip, клик по точке
+     → строка деталей: время · EAR · событие (#ear-chart-detail)
+  ⚠️ Демо-водители выглядят «застрявшими» — это seed в localStorage, так задумано
+
+Футер (кредиты):
+  Автор: Yeralkassyn Nurassyl · Ералкасын Нурасыл
+  Со-автор: Серік Еркебұлан
+  Со-автор: Максот Гульнур
+  Ассистент по исследованию: Bessembayeva Ilnara
+  (+ тонкая пасхалка с цитатой Эйнштейна)
+
+
+═══════════════════════════════════════════════════════════
+ПУБЛИКАЦИЯ / LIVE-КАМЕРА (кратко)
+═══════════════════════════════════════════════════════════
+
+Проблема: Streamlit + WebRTC на Render/Cloud часто НЕ даёт стабильный live у всех.
+Решение для публичной ссылки: web/ — обработка на устройстве пользователя.
+
+Сейчас:
+  • Эталон — localhost Streamlit (OpenCV Live)
+  • Публичный LIVE — web/ на Vercel
+  • Витрина Streamlit — Render (карта, fleet, demo, снимок; live слабый)
+  • Питч — скринкаст + demo mode
+
+Временная ссылка на Streamlit OpenCV: Cloudflare Tunnel / ngrok → :8501
+
+Дальше по продукту:
+  1. Пилот у перевозчика + KPI
+  2. Astana Hub / гранты
+  3. Android app в кабине (репо Buzz-Up-app)
+  4. OSM/Overpass — реальные точки отдыха
+  5. ИК-камера (ночь)
+  6. Бэкенд логов (сейчас только localStorage в web/)
+
+
+═══════════════════════════════════════════════════════════
+ПРАВИЛА ДЛЯ ИИ В НОВОМ ЧАТЕ
+═══════════════════════════════════════════════════════════
+
+- Не ломать локальный Streamlit / OpenCV Live без явной просьбы
+- Для правок публичного UI трогать в основном web/
+- После правок по запросу пользователя — сразу коммит; web/ ещё и push в main (Vercel)
+- На Windows PowerShell нет bash HEREDOC — git commit -m "..."
+- Не путать с мобильным репо BUZZ-UP-app
+- Не «чинить» застрявших демо-водителей во Fleet без просьбы
+- Файлы train.py / infer.py (.pkl) — старый пайплайн, не трогать без нужды
+
+
+═══════════════════════════════════════════════════════════
+ИЗВЕСТНЫЕ ФИКСЫ / НЮАНСЫ
+═══════════════════════════════════════════════════════════
+
+- matplotlib _image DLL на Windows → stub в drowsiness_detector.py
+- demo_mode lazy import до streamlit_webrtc
+- BUZZUP_FORCE_WEBRTC=1 / BUZZUP_FORCE_CLOUD_UI=1 — флаги облака
+- Логи web/ только в браузере (localStorage) — на другом ПК Fleet пустой,
+  пока не накопятся события / не включены демо-водители
+- Chart.js и Leaflet подключены с CDN в web/index.html
+
+
+═══════════════════════════════════════════════════════════
+ПОСЛЕДНИЕ ИЗМЕНЕНИЯ (6 авг 2026)
+═══════════════════════════════════════════════════════════
+
+1) Fleet: статичная отрисовка графика → Chart.js (клик/hover по точкам)
+2) Карта: кнопка «🎯 На меня» → геолокация + приближение (flyTo 15)
+3) Эта шпаргалка обновлена под новый чат
+
+Если изменения ещё не на Vercel: закоммить и запушь папку web/ в main.
+
+
+═══════════════════════════════════════════════════════════
+ПРИМЕРЫ ЗАПРОСОВ В НОВОМ ЧАТЕ
+═══════════════════════════════════════════════════════════
+
+«Запушь web/ на GitHub чтобы Vercel обновился»
+«Сделай бэкенд логов вместо localStorage»
+«Улучши UI Fleet / добавь фильтр по дате»
+«Cloudflare Tunnel для демо Streamlit инвестору»
+«Pitch deck / письмо перевозчику»
+«Начни Android MVP в репо Buzz-Up-app» (открыть ту папку!)
+«Сверь EAR web/ с drowsiness_detector.py»

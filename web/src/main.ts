@@ -14,6 +14,7 @@ import {
   eventsForDriver,
   loadFleetEvents,
   summarizeDrivers,
+  type ChartPoint,
   type DriverSummary,
 } from "./fleet";
 import {
@@ -65,6 +66,7 @@ const routeSelect = document.querySelector<HTMLSelectElement>("#route-select")!;
 const latInput = document.querySelector<HTMLInputElement>("#lat")!;
 const lngInput = document.querySelector<HTMLInputElement>("#lng")!;
 const btnGeo = document.querySelector<HTMLButtonElement>("#btn-geo")!;
+const btnZoomMe = document.querySelector<HTMLButtonElement>("#btn-zoom-me")!;
 const btnFindStop = document.querySelector<HTMLButtonElement>("#btn-find-stop")!;
 const stopDetails = document.querySelector<HTMLElement>("#stop-details")!;
 const stopAdvice = document.querySelector<HTMLElement>("#stop-advice")!;
@@ -86,6 +88,7 @@ const fleetDriverSelect = document.querySelector<HTMLSelectElement>("#fleet-driv
 const fleetEventsBody = document.querySelector<HTMLTableSectionElement>("#fleet-events-table tbody")!;
 const earChart = document.querySelector<HTMLCanvasElement>("#ear-chart")!;
 const earChartEmpty = document.querySelector<HTMLElement>("#ear-chart-empty")!;
+const earChartDetail = document.querySelector<HTMLElement>("#ear-chart-detail")!;
 const liveStatus = document.querySelector<HTMLElement>("#live-status")!;
 const liveEar = document.querySelector<HTMLElement>("#live-ear")!;
 const liveClosed = document.querySelector<HTMLElement>("#live-closed")!;
@@ -105,6 +108,9 @@ let markersLayer: LeafletLayerGroup | null = null;
 let lastLiveResult: DrowsinessResult | null = null;
 let fleetEventsCache: FatigueEvent[] = [];
 let selectedDriverId: string | null = null;
+let earChartInstance: ChartInstance | null = null;
+let chartPointsCache: ChartPoint[] = [];
+let userMarker: LeafletMarker | null = null;
 
 function showError(message: string | null): void {
   if (!message) {
@@ -292,14 +298,21 @@ function ensureMap(): LeafletMap {
   return map;
 }
 
-function renderMap(routeId: string, userLat: number, userLon: number, stop: NearestStop | null): void {
+function renderMap(
+  routeId: string,
+  userLat: number,
+  userLon: number,
+  stop: NearestStop | null,
+  focusUser = false,
+): void {
   if (!busData) return;
   const m = ensureMap();
   markersLayer?.clearLayers();
+  userMarker = null;
   const route = busData.routes[routeId];
   const points: Array<[number, number]> = [[userLat, userLon]];
 
-  L.circleMarker([userLat, userLon], {
+  userMarker = L.circleMarker([userLat, userLon], {
     radius: 8,
     color: "#3ecfb0",
     fillColor: "#3ecfb0",
@@ -321,7 +334,10 @@ function renderMap(routeId: string, userLat: number, userLon: number, stop: Near
     points.push([s.lat, s.lng]);
   }
 
-  if (points.length > 1) {
+  if (focusUser) {
+    m.flyTo([userLat, userLon], 15);
+    setTimeout(() => userMarker?.openPopup(), 450);
+  } else if (points.length > 1) {
     m.fitBounds(L.latLngBounds(points), { padding: [28, 28] });
   } else {
     m.setView([userLat, userLon], 10);
@@ -374,14 +390,39 @@ async function initRoutes(): Promise<void> {
   ensureMap();
 }
 
-function findAndShowStop(): void {
+function findAndShowStop(focusUser = false): void {
   if (!busData) return;
   const lat = Number(latInput.value);
   const lng = Number(lngInput.value);
   const routeId = routeSelect.value;
   nearestStop = findNearestStop(lat, lng, routeId, busData);
   renderStopDetails(nearestStop);
-  renderMap(routeId, lat, lng, nearestStop);
+  renderMap(routeId, lat, lng, nearestStop, focusUser);
+}
+
+function zoomToMyLocation(): void {
+  if (!navigator.geolocation) {
+    showError("Геолокация недоступна в этом браузере.");
+    return;
+  }
+  showError(null);
+  btnZoomMe.disabled = true;
+  btnZoomMe.textContent = "…";
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      latInput.value = String(Math.round(pos.coords.latitude * 10000) / 10000);
+      lngInput.value = String(Math.round(pos.coords.longitude * 10000) / 10000);
+      findAndShowStop(true);
+      btnZoomMe.disabled = false;
+      btnZoomMe.textContent = "🎯 На меня";
+    },
+    () => {
+      showError("Не удалось получить геолокацию. Разрешите доступ в браузере.");
+      btnZoomMe.disabled = false;
+      btnZoomMe.textContent = "🎯 На меня";
+    },
+    { enableHighAccuracy: true, timeout: 12000 },
+  );
 }
 
 function renderLiveDriver(result: DrowsinessResult | null): void {
@@ -406,70 +447,100 @@ function renderLiveDriver(result: DrowsinessResult | null): void {
   liveClosed.textContent = String(result.closedFrames);
 }
 
-function drawEarChart(points: { time: string; ear: number }[]): void {
-  const c = earChart.getContext("2d");
-  if (!c) return;
-  const w = earChart.width;
-  const h = earChart.height;
-  c.clearRect(0, 0, w, h);
-  c.fillStyle = "rgba(10, 32, 28, 0.95)";
-  c.fillRect(0, 0, w, h);
+function showChartDetail(point: ChartPoint | null): void {
+  if (!point) {
+    earChartDetail.textContent = "Выберите точку на графике";
+    return;
+  }
+  earChartDetail.textContent = `${point.time} · EAR ${point.ear.toFixed(3)} · ${formatEventLabel(point.event)}`;
+}
+
+function drawEarChart(points: ChartPoint[]): void {
+  chartPointsCache = points;
+  if (earChartInstance) {
+    earChartInstance.destroy();
+    earChartInstance = null;
+  }
 
   if (points.length === 0) {
     earChart.classList.add("hidden");
     earChartEmpty.classList.remove("hidden");
+    showChartDetail(null);
     return;
   }
+
   earChart.classList.remove("hidden");
   earChartEmpty.classList.add("hidden");
+  showChartDetail(null);
 
-  const pad = { l: 44, r: 16, t: 16, b: 36 };
-  const plotW = w - pad.l - pad.r;
-  const plotH = h - pad.t - pad.b;
-  const ears = points.map((p) => p.ear);
-  const minY = Math.min(0, ...ears);
-  const maxY = Math.max(0.35, ...ears);
-  const spanY = maxY - minY || 1;
-
-  c.strokeStyle = "rgba(180, 220, 210, 0.18)";
-  c.fillStyle = "rgba(220, 240, 235, 0.7)";
-  c.font = "12px Roboto Mono, monospace";
-  for (let i = 0; i <= 4; i++) {
-    const y = pad.t + (plotH * i) / 4;
-    const val = maxY - (spanY * i) / 4;
-    c.beginPath();
-    c.moveTo(pad.l, y);
-    c.lineTo(w - pad.r, y);
-    c.stroke();
-    c.fillText(val.toFixed(2), 6, y + 4);
-  }
-
-  c.strokeStyle = "#3ecfb0";
-  c.lineWidth = 2;
-  c.beginPath();
-  points.forEach((p, i) => {
-    const x = pad.l + (points.length === 1 ? plotW / 2 : (plotW * i) / (points.length - 1));
-    const y = pad.t + plotH * (1 - (p.ear - minY) / spanY);
-    if (i === 0) c.moveTo(x, y);
-    else c.lineTo(x, y);
-  });
-  c.stroke();
-
-  c.fillStyle = "#e8a54b";
-  points.forEach((p, i) => {
-    const x = pad.l + (points.length === 1 ? plotW / 2 : (plotW * i) / (points.length - 1));
-    const y = pad.t + plotH * (1 - (p.ear - minY) / spanY);
-    c.beginPath();
-    c.arc(x, y, 3, 0, Math.PI * 2);
-    c.fill();
-  });
-
-  c.fillStyle = "rgba(220, 240, 235, 0.7)";
-  const step = Math.max(1, Math.floor(points.length / 6));
-  points.forEach((p, i) => {
-    if (i % step !== 0 && i !== points.length - 1) return;
-    const x = pad.l + (points.length === 1 ? plotW / 2 : (plotW * i) / (points.length - 1));
-    c.fillText(p.time, x - 20, h - 12);
+  earChartInstance = new Chart(earChart, {
+    type: "line",
+    data: {
+      labels: points.map((p) => p.time),
+      datasets: [
+        {
+          label: "EAR",
+          data: points.map((p) => p.ear),
+          borderColor: "#3ecfb0",
+          backgroundColor: "rgba(62, 207, 176, 0.12)",
+          pointBackgroundColor: "#e8a54b",
+          pointBorderColor: "#fff",
+          pointRadius: 5,
+          pointHoverRadius: 9,
+          tension: 0.25,
+          fill: true,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: "nearest", intersect: true },
+      onClick: (_evt: unknown, elements: Array<{ index: number }>) => {
+        if (!elements.length) return;
+        showChartDetail(chartPointsCache[elements[0].index] ?? null);
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: "rgba(10, 32, 28, 0.95)",
+          titleColor: "#fff",
+          bodyColor: "#dcf0eb",
+          borderColor: "rgba(180, 220, 210, 0.3)",
+          borderWidth: 1,
+          callbacks: {
+            label: (ctx: { raw: unknown; dataIndex: number }) => {
+              const ear = Number(ctx.raw);
+              const point = chartPointsCache[ctx.dataIndex];
+              const event = point ? formatEventLabel(point.event) : "";
+              return [`EAR: ${ear.toFixed(3)}`, event].filter(Boolean);
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: {
+            color: "rgba(220, 240, 235, 0.65)",
+            maxRotation: 0,
+            autoSkip: true,
+            maxTicksLimit: 8,
+          },
+          grid: { color: "rgba(180, 220, 210, 0.08)" },
+        },
+        y: {
+          min: 0,
+          suggestedMax: 0.35,
+          ticks: { color: "rgba(220, 240, 235, 0.65)" },
+          grid: { color: "rgba(180, 220, 210, 0.12)" },
+          title: {
+            display: true,
+            text: "EAR",
+            color: "rgba(220, 240, 235, 0.7)",
+          },
+        },
+      },
+    },
   });
 }
 
@@ -561,7 +632,10 @@ function setupTabs(): void {
       const id = tab.dataset.tab;
       monitor.classList.toggle("hidden", id !== "monitor");
       fleet.classList.toggle("hidden", id !== "fleet");
-      if (id === "fleet") renderFleet(false);
+      if (id === "fleet") {
+        renderFleet(false);
+        setTimeout(() => earChartInstance?.update(), 120);
+      }
       if (id === "monitor") setTimeout(() => map?.invalidateSize(), 80);
     });
   });
@@ -627,13 +701,14 @@ btnGeo.addEventListener("click", () => {
     (pos) => {
       latInput.value = String(Math.round(pos.coords.latitude * 10000) / 10000);
       lngInput.value = String(Math.round(pos.coords.longitude * 10000) / 10000);
-      findAndShowStop();
+      findAndShowStop(false);
     },
     () => showError("Не удалось получить геолокацию. Разрешите доступ или введите координаты вручную."),
   );
 });
 
-btnFindStop.addEventListener("click", findAndShowStop);
+btnZoomMe.addEventListener("click", zoomToMyLocation);
+btnFindStop.addEventListener("click", () => findAndShowStop(false));
 fleetDemoInput.addEventListener("change", () => renderFleet(true));
 
 setupTabs();

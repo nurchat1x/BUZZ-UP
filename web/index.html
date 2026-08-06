@@ -163,6 +163,7 @@
             </div>
             <div class="controls tight">
               <button id="btn-geo" class="btn-secondary" type="button">📍 GPS</button>
+              <button id="btn-zoom-me" class="btn-secondary" type="button">🎯 На меня</button>
               <button id="btn-find-stop" class="btn-primary" type="button">Найти</button>
             </div>
             <div id="map" class="map"></div>
@@ -233,8 +234,12 @@
           </label>
 
           <h3 class="subsection-title">📈 EAR по эпизодам</h3>
-          <canvas id="ear-chart" class="ear-chart" width="800" height="260"></canvas>
+          <p class="section-sub">Наведите или нажмите на точку — время, EAR и событие</p>
+          <div class="ear-chart-wrap">
+            <canvas id="ear-chart" class="ear-chart" aria-label="График EAR"></canvas>
+          </div>
           <p id="ear-chart-empty" class="hint hidden">Нет точек для графика по этому водителю.</p>
+          <p id="ear-chart-detail" class="chart-detail hint">Выберите точку на графике</p>
 
           <h3 class="subsection-title">📋 События</h3>
           <div class="table-wrap">
@@ -299,6 +304,9 @@
       </footer>
     </div>
 
+    <script
+      src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"
+    ></script>
     <script
       src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
       integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
